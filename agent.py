@@ -71,8 +71,8 @@ with open("system_prompt.txt", "r", encoding="utf-8") as f:
 sys_msg = SystemMessage(content=system_prompt)
 
 # build a retriever
- embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
- supabase: Client = create_client(
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
+supabase: Client = create_client(
     os.environ.get("SUPABASE_URL"), 
     os.environ.get("SUPABASE_SERVICE_KEY"))
 
@@ -84,8 +84,11 @@ vector_store = SupabaseVectorStore(
 )
 
 retriever_tool = create_retriever_tool(
+    retriever=vector_store.as_retriever(
+        search_type="similarity",
         search_kwargs={"k": 5}
     ),
+    name="question_search",
     description="A tool to retrieve similar questions from a vector store.",
 )
 
