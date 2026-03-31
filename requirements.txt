@@ -17,3 +17,4 @@ pymupdf
 wikipedia
 pgvector
 python-dotenv
+sentence-transformers
