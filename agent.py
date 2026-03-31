@@ -11,12 +11,14 @@ from langchain_community.document_loaders import ArxivLoader
 from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_community.retrievers import WikipediaRetriever
-from langchain.tools.retriever import create_retriever_tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.llms import YandexGPT
 from langchain_core.tools import tool
 from supabase.client import Client, create_client
 from langchain_deepseek import ChatDeepSeek
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
 
 load_dotenv()
 
@@ -69,26 +71,49 @@ with open("system_prompt.txt", "r", encoding="utf-8") as f:
 sys_msg = SystemMessage(content=system_prompt)
 
 # build a retriever
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
-supabase: Client = create_client(
-    os.environ.get("SUPABASE_URL"), 
-    os.environ.get("SUPABASE_SERVICE_KEY"))
+# embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
+# supabase: Client = create_client(
+   # os.environ.get("SUPABASE_URL"), 
+   # os.environ.get("SUPABASE_SERVICE_KEY"))
 
-vector_store = SupabaseVectorStore(
-    client=supabase,
-    embedding=embeddings,
-    table_name="documents",
-    query_name="match_documents_langchain",
+#vector_store = SupabaseVectorStore(
+  #  client=supabase,
+  #  embedding=embeddings,
+  #  table_name="documents",
+ #   query_name="match_documents_langchain",
+#)
+
+#retriever_tool = create_retriever_tool(
+  #      search_kwargs={"k": 5}
+   # ),
+   ## description="A tool to retrieve similar questions from a vector store.",
+#)
+
+class LazyRetriever:
+    def __init__(self):
+        self.ready = False
+
+    def setup(self, documents):
+        self.model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.docs = documents
+        emb = self.model.encode(documents)
+
+        self.index = faiss.IndexFlatL2(emb.shape[1])
+        self.index.add(np.array(emb))
+        self.ready = True
+
+    def retrieve(self, query):
+        if not self.ready:
+            raise ValueError("Retriever not initialized with documents")
+
+retriever = SentenceTransformerRetriever(documents)
+
+retrieval_tool = Tool(
+    name="semantic_search",
+    func=retrieval_tool_func,
+    description="Useful for retrieving relevant documents using semantic similarity",
 )
 
-retriever_tool = create_retriever_tool(
-    retriever=vector_store.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 5}
-    ),
-    name="question_search",
-    description="A tool to retrieve similar questions from a vector store.",
-)
 
 tools = [
     wiki_search,
