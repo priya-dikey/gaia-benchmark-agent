@@ -19,8 +19,7 @@ from sentence_transformers import SentenceTransformer
 from langchain_community.llms import HuggingFaceHub
 import faiss
 import numpy as np
-from transformers import pipeline
-from langchain_community.llms import HuggingFacePipeline
+
 
 
 load_dotenv()
@@ -118,14 +117,12 @@ tools = [
 ]
 
 def build_graph():
-    pipe = pipeline(
-        "text2text-generation",
-        model="google/flan-t5-base",
-        max_length=512,
-        temperature=0
-    )
-
-    llm = HuggingFacePipeline(pipeline=pipe,huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN")
+    llm = HuggingFaceHub( 
+        repo_id="google/flan-t5-base",
+        task="text2text-generation", 
+        model_kwargs={ "temperature": 0, "max_length": 512 }
+        , 
+        huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN") 
     )
 
     #llm_with_tools = llm.bind_tools(tools)
