@@ -146,7 +146,7 @@ def build_graph():
     #    max_retries=2,
     #)
     
-    llm_with_tools = llm.bind_tools(tools)
+llm_with_tools = llm.bind_tools(tools)
 
     def assistant(state: MessagesState):
         """Assistant node"""
