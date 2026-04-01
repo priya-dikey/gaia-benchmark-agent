@@ -16,6 +16,7 @@ from langchain_core.tools import tool
 from langchain_deepseek import ChatDeepSeek
 from langchain_experimental.tools import PythonREPLTool 
 from sentence_transformers import SentenceTransformer
+from langchain_community.llms import HuggingFaceHub
 import faiss
 import numpy as np
 
@@ -116,11 +117,15 @@ tools = [
 ]
 
 def build_graph():
-    llm = ChatHuggingFace(
-        llm=HuggingFaceEndpoint(
-            repo_id = "Qwen/Qwen2.5-Coder-32B-Instruct"
-        ),
-    )
+    llm = HuggingFaceHub(
+    repo_id="google/flan-t5-base",
+    model_kwargs={"temperature": 0}
+)
+   # llm = ChatHuggingFace(
+   #     llm=HuggingFaceEndpoint(
+   #         repo_id = "Qwen/Qwen2.5-Coder-32B-Instruct"
+   #     ),
+   # )
 
     #llm = YandexGPT(
     #    api_key=os.environ["YANDEX_API_KEY"],
