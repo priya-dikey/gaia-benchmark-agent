@@ -161,12 +161,3 @@ def build_graph():
     builder.add_edge("tools", "assistant")
 
     return builder.compile()
-
-# test
-if __name__ == "__main__":
-    question = "When was a picture of St. Thomas Aquinas first added to the Wikipedia page on the Principle of double effect?"
-    graph = build_graph(provider="groq")
-    messages = [HumanMessage(content=question)]
-    messages = graph.invoke({"messages": messages})
-    for m in messages["messages"]:
-        m.pretty_print()
