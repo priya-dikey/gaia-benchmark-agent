@@ -22,6 +22,7 @@ from langchain_community.llms import HuggingFaceHub
 from langchain_huggingface import HuggingFaceEndpoint
 from transformers import pipeline
 from langchain_community.llms import HuggingFacePipeline
+from supabase.client import Client, create_client
 import faiss
 import numpy as np
 
@@ -124,17 +125,15 @@ def build_graph():
 
     def retriever(state: MessagesState):
         """Retriever node"""
-        similar_question = local_retriever.search(state["messages"][0].content)
-
-        print("Similar questions:")
+        similar_question = vector_store.similarity_search(state["messages"][0].content)
+        print('Similar questions:')
         print(similar_question)
-
         if len(similar_question) > 0:
             example_msg = HumanMessage(
-                content=f"Here I provide a similar question and answer for reference:\n\n{similar_question[0]}",
+                content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0].page_content}",
             )
+            #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
             return {"messages": [sys_msg] + state["messages"] + [example_msg]}
-
         return {"messages": [sys_msg] + state["messages"]}
 
     builder = StateGraph(MessagesState)
