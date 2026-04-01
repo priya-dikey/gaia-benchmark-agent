@@ -143,7 +143,6 @@ def build_graph():
                 content=f"Here I provide a similar question and answer for reference:\n\n{similar_question[0]}",
             )
             return {"messages": [sys_msg] + state["messages"] + [example_msg]}
-
         return {"messages": [sys_msg] + state["messages"]}
 
     builder = StateGraph(MessagesState)
