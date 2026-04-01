@@ -18,9 +18,10 @@ from langchain_experimental.tools import PythonREPLTool
 from sentence_transformers import SentenceTransformer
 from langchain_community.llms import HuggingFaceHub
 from langchain_huggingface import HuggingFaceEndpoint
+from transformers import pipeline
+from langchain_community.llms import HuggingFacePipeline
 import faiss
 import numpy as np
-
 
 
 load_dotenv()
