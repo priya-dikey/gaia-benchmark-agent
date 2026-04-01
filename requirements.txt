@@ -11,7 +11,7 @@ langchain-chroma
 langchain-deepseek
 langgraph
 huggingface_hub
-supabase
+supabase==1.0.3
 arxiv
 pymupdf
 wikipedia
