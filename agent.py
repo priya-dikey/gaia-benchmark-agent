@@ -119,13 +119,13 @@ tools = [
 ]
 
 def build_graph():
-     llm = ChatHuggingFace(
+    llm = ChatHuggingFace(
         llm=HuggingFaceEndpoint(
-            repo_id = "Qwen/Qwen2.5-Coder-32B-Instruct"
+            repo_id="Qwen/Qwen2.5-Coder-32B-Instruct"
         ),
     )
-    
-    #llm_with_tools = llm.bind_tools(tools)
+
+    # llm_with_tools = llm.bind_tools(tools)
 
     def assistant(state: MessagesState):
         """Assistant node"""
@@ -143,6 +143,7 @@ def build_graph():
                 content=f"Here I provide a similar question and answer for reference:\n\n{similar_question[0]}",
             )
             return {"messages": [sys_msg] + state["messages"] + [example_msg]}
+
         return {"messages": [sys_msg] + state["messages"]}
 
     builder = StateGraph(MessagesState)
