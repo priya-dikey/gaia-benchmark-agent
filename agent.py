@@ -8,6 +8,8 @@ from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint, HuggingF
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.document_loaders import WikipediaLoader
 from langchain_community.document_loaders import ArxivLoader
+from langchain_community.vectorstores import SupabaseVectorStore
+from langchain_community.tools.retriever import create_retriever_tool
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_community.retrievers import WikipediaRetriever
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -78,37 +80,26 @@ with open("system_prompt.txt", "r", encoding="utf-8") as f:
 sys_msg = SystemMessage(content=system_prompt)
 
 # build a retriever
-class LocalRetriever:
-    def __init__(self, documents):
-        self.documents = documents
-        self.model = SentenceTransformer("all-MiniLM-L6-v2")
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
+supabase: Client = create_client(
+    os.environ.get("SUPABASE_URL"), 
+    os.environ.get("SUPABASE_SERVICE_KEY"))
 
-        embeddings = self.model.encode(documents)
-        self.index = faiss.IndexFlatL2(embeddings.shape[1])
-        self.index.add(np.array(embeddings))
+vector_store = SupabaseVectorStore(
+    client=supabase,
+    embedding=embeddings,
+    table_name="documents",
+    query_name="match_documents_langchain",
+)
 
-    def search(self, query, k=5):
-        query_embedding = self.model.encode([query])
-        _, indices = self.index.search(query_embedding, k)
-        return [self.documents[i] for i in indices[0]]
-
-
-# Load your data (replace with CSV later if needed)
-documents = [
-    "How to use LangChain for retrieval?",
-    "What is FAISS similarity search?",
-    "How do embeddings work in NLP?",
-    "What is Retrieval Augmented Generation?",
-]
-
-local_retriever = LocalRetriever(documents)
-
-
-@tool
-def retriever_tool(query: str) -> str:
-    """Retrieve similar questions from local vector store."""
-    results = local_retriever.search(query)
-    return "\n\n".join(results)
+retriever_tool = create_retriever_tool(
+    retriever=vector_store.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": 5}
+    ),
+    name="question_search",
+    description="A tool to retrieve similar questions from a vector store.",
+)
 
 tools = [
     wiki_search,
