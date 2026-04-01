@@ -176,16 +176,13 @@ with gr.Blocks() as demo:
     results_table = gr.DataFrame(label="Questions and Agent Answers", wrap=True)
 
     run_button.click(
-        fn=run_and_submit_all,
+        fn=run_agent,
         outputs=[status_output, results_table]
     )
 def run_agent(task):
     print("=== RUN_AGENT TRIGGERED ===")
     print("INPUT:", task)
-
-    from agent import build_graph
-    from langchain_core.messages import HumanMessage
-
+    
     graph = build_graph()
 
     messages = [HumanMessage(content=task)]
