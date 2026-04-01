@@ -120,7 +120,6 @@ tools = [
 def build_graph():
     llm = HuggingFaceEndpoint( 
         repo_id="mistralai/Mistral-7B-Instruct-v0.2",
-        task="text2text-generation", 
         temperature=0.1,
         max_new_tokens=500, 
         huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN") 
