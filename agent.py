@@ -146,24 +146,24 @@ def build_graph():
     #    max_retries=2,
     #)
     
-llm_with_tools = llm.bind_tools(tools)
+    llm_with_tools = llm.bind_tools(tools)
 
-def assistant(state: MessagesState):
-    """Assistant node"""
-    return {"messages": [llm_with_tools.invoke(state["messages"])]}
+    def assistant(state: MessagesState):
+        """Assistant node"""
+        return {"messages": [llm_with_tools.invoke(state["messages"])]}
     
-def retriever(state: MessagesState):
-    """Retriever node"""
-    similar_question = local_retriever.search(state["messages"][0].content)
-    print('Similar questions:')
-    print(similar_question)
-    if len(similar_question) > 0:
-        example_msg = HumanMessage(
-            content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0]}",
-        )
-        #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
-        return {"messages": [sys_msg] + state["messages"] + [example_msg]}
-        return {"messages": [sys_msg] + state["messages"]}
+    def retriever(state: MessagesState):
+        """Retriever node"""
+        similar_question = local_retriever.search(state["messages"][0].content)
+        print('Similar questions:')
+        print(similar_question)
+        if len(similar_question) > 0:
+            example_msg = HumanMessage(
+                content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0]}",
+            )
+            #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
+            return {"messages": [sys_msg] + state["messages"] + [example_msg]}
+            return {"messages": [sys_msg] + state["messages"]}
 
     builder = StateGraph(MessagesState)
     builder.add_node("retriever", retriever)
