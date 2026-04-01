@@ -19,3 +19,4 @@ pgvector
 python-dotenv
 sentence-transformers
 langchain-experimental
+faiss-cpu
