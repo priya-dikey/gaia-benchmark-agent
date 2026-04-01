@@ -15,7 +15,6 @@ DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 class BasicAgent:
     def __init__(self):
         self.graph = build_graph()
-        print("BasicAgent initialized.")
         
     def __call__(self, question: str) -> str:
         print(f"Agent received question (first 50 chars): {question[:50]}...")
