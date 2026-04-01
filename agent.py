@@ -118,7 +118,7 @@ tools = [
 
 def build_graph():
     llm = HuggingFaceHub( 
-        repo_id="google/flan-t5-base",
+        repo_id=“mistralai/Mistral-7B-Instruct-v0.2”,
         task="text2text-generation", 
         model_kwargs={ "temperature": 0, "max_length": 512 }
         , 
