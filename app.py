@@ -15,14 +15,6 @@ DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 # --- Basic Agent Definition ---
 # ----- THIS IS WERE YOU CAN BUILD WHAT YOU WANT ------
 
-print("APP STARTED")
-
-graph = build_graph()
-messages = [HumanMessage(content="What is FAISS?")]
-
-result = graph.invoke({"messages": messages})
-
-print("FORCED TEST:", result)
 class BasicAgent:
     def __init__(self):
         self.graph = build_graph()
@@ -187,7 +179,22 @@ with gr.Blocks() as demo:
         fn=run_and_submit_all,
         outputs=[status_output, results_table]
     )
+def run_agent(task):
+    print("=== RUN_AGENT TRIGGERED ===")
+    print("INPUT:", task)
 
+    from agent import build_graph
+    from langchain_core.messages import HumanMessage
+
+    graph = build_graph()
+
+    messages = [HumanMessage(content=task)]
+    result = graph.invoke({"messages": messages})
+
+    print("OUTPUT:", result)
+
+    return result["messages"][-1].content
+    
 if __name__ == "__main__":
     print("\n" + "-"*30 + " App Starting " + "-"*30)
     # Check for SPACE_HOST and SPACE_ID at startup for information
@@ -211,16 +218,3 @@ if __name__ == "__main__":
 
     print("Launching Gradio Interface for Basic Agent Evaluation...")
     demo.launch(debug=True, share=False)
-
-def debug_test():
-    print("RUNNING AGENT TEST")
-
-    graph = build_graph()
-    messages = [HumanMessage(content="What is FAISS?")]
-
-    result = graph.invoke({"messages": messages})
-
-    for m in result["messages"]:
-        print(m)
-
-debug_test()
