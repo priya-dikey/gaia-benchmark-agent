@@ -20,3 +20,5 @@ faiss-cpu
 langchain
 langchain-community
 huggingface_hub
+transformers
+torch
