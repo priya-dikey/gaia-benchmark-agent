@@ -131,7 +131,7 @@ def build_graph():
 
     def assistant(state: MessagesState):
         """Assistant node"""
-        return {"messages": [llm_with_tools.invoke(state["messages"])]}
+        return {"messages": [llm.invoke(state["messages"])]}
 
     def retriever(state: MessagesState):
         """Retriever node"""
