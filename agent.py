@@ -81,26 +81,59 @@ with open("system_prompt.txt", "r", encoding="utf-8") as f:
 sys_msg = SystemMessage(content=system_prompt)
 
 # build a retriever
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
-supabase: Client = create_client(
-    os.environ.get("SUPABASE_URL"), 
-    os.environ.get("SUPABASE_KEY"))
+#embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
+#supabase: Client = create_client(
+#   os.environ.get("SUPABASE_URL"), 
+#    os.environ.get("SUPABASE_KEY"))
 
-vector_store = SupabaseVectorStore(
-    client=supabase,
-    embedding=embeddings,
-    table_name="documents",
-    query_name="match_documents_langchain",
-)
+#vector_store = SupabaseVectorStore(
+ #   client=supabase,
+  #  embedding=embeddings,
+   # table_name="documents",
+    #query_name="match_documents_langchain",
+#)
 
-retriever_tool = create_retriever_tool(
-    retriever=vector_store.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 5}
-    ),
-    name="question_search",
-    description="A tool to retrieve similar questions from a vector store.",
-)
+#retriever_tool = create_retriever_tool(
+ #   retriever=vector_store.as_retriever(
+  #      search_type="similarity",
+   #     search_kwargs={"k": 5}
+    #),
+    #name="question_search",
+    #description="A tool to retrieve similar questions from a vector store.",
+#)
+class SimpleRetriever:
+    def __init__(self, documents):
+        self.documents = documents
+        self.model = SentenceTransformer("all-MiniLM-L6-v2")
+
+        # Precompute embeddings
+        self.embeddings = self.model.encode(documents)
+
+    def search(self, query, k=3):
+        query_embedding = self.model.encode([query])[0]
+
+        # Cosine similarity
+        scores = np.dot(self.embeddings, query_embedding) / (
+            np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_embedding)
+        )
+
+        top_k_idx = np.argsort(scores)[-k:][::-1]
+
+        return [self.documents[i] for i in top_k_idx]
+        
+documents = [
+    "LangChain helps build LLM applications.",
+    "FAISS is used for similarity search.",
+    "Retrieval Augmented Generation improves LLM accuracy.",
+    "Embeddings convert text into vectors."
+]
+
+retriever = SimpleRetriever(documents)
+
+@tool
+def retriever_tool(query: str) -> str:
+    results = retriever.search(query, k=3)
+    return "\n".join(results)
 
 tools = [
     wiki_search,
