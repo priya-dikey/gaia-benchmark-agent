@@ -117,64 +117,50 @@ tools = [
 ]
 
 def build_graph():
-   llm = HuggingFaceHub(
+    llm = HuggingFaceHub(
         repo_id="google/flan-t5-base",
-        task="text2text-generation", 
+        task="text2text-generation",
         model_kwargs={
             "temperature": 0,
             "max_length": 512
         },
-        huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN")  # optional if public
+        huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN")
     )
-   # llm = ChatHuggingFace(
-   #     llm=HuggingFaceEndpoint(
-   #         repo_id = "Qwen/Qwen2.5-Coder-32B-Instruct"
-   #     ),
-   # )
 
-    #llm = YandexGPT(
-    #    api_key=os.environ["YANDEX_API_KEY"],
-    #    folder_id=os.environ["YANDEX_FOLDER_ID"],
-    #    model_uri=os.environ["YANDEX_MODEL_URI"],
-    #)
-
-    #llm = ChatDeepSeek(
-    #    model="deepseek-chat",
-    #    temperature=0,
-    #    max_tokens=None,
-    #    timeout=None,
-    #    max_retries=2,
-    #)
-    
     llm_with_tools = llm.bind_tools(tools)
 
     def assistant(state: MessagesState):
         """Assistant node"""
         return {"messages": [llm_with_tools.invoke(state["messages"])]}
-    
+
     def retriever(state: MessagesState):
         """Retriever node"""
         similar_question = local_retriever.search(state["messages"][0].content)
-        print('Similar questions:')
+
+        print("Similar questions:")
         print(similar_question)
+
         if len(similar_question) > 0:
             example_msg = HumanMessage(
-                content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0]}",
+                content=f"Here I provide a similar question and answer for reference:\n\n{similar_question[0]}",
             )
-            #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
             return {"messages": [sys_msg] + state["messages"] + [example_msg]}
-            return {"messages": [sys_msg] + state["messages"]}
+
+        return {"messages": [sys_msg] + state["messages"]}
 
     builder = StateGraph(MessagesState)
     builder.add_node("retriever", retriever)
     builder.add_node("assistant", assistant)
     builder.add_node("tools", ToolNode(tools))
+
     builder.add_edge(START, "retriever")
     builder.add_edge("retriever", "assistant")
+
     builder.add_conditional_edges(
         "assistant",
         tools_condition,
     )
+
     builder.add_edge("tools", "assistant")
 
     return builder.compile()
