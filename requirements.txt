@@ -1,7 +1,5 @@
 gradio
 requests
-langchain
-langchain-community
 langchain-core
 langchain-google-genai
 langchain-huggingface
@@ -10,7 +8,6 @@ langchain-tavily
 langchain-chroma
 langchain-deepseek
 langgraph
-huggingface_hub
 supabase
 arxiv
 pymupdf
@@ -20,3 +17,6 @@ python-dotenv
 sentence-transformers
 langchain-experimental
 faiss-cpu
+langchain==0.2.0
+langchain-community==0.2.0
+huggingface_hub==0.16.4
