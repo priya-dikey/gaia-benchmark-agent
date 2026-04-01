@@ -127,7 +127,7 @@ def build_graph():
         huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN")
     )
 
-    llm_with_tools = llm.bind_tools(tools)
+    #llm_with_tools = llm.bind_tools(tools)
 
     def assistant(state: MessagesState):
         """Assistant node"""
