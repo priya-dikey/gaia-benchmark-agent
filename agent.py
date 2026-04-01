@@ -74,7 +74,7 @@ sys_msg = SystemMessage(content=system_prompt)
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
 supabase: Client = create_client(
     os.environ.get("SUPABASE_URL"), 
-    os.environ.get("SUPABASE_SERVICE_KEY"))
+    os.environ.get("SUPABASE_KEY"))
 
 vector_store = SupabaseVectorStore(
     client=supabase,
