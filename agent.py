@@ -132,7 +132,7 @@ retriever = SimpleRetriever(documents)
 
 @tool
 def retriever_tool(query: str) -> str:
-        """Searches the local document store and returns the most relevant context."""
+    """Searches the local document store and returns the most relevant context."""
     results = retriever.search(query, k=3)
     return "\n".join(results)
 
