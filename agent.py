@@ -18,6 +18,9 @@ from langchain_core.tools import tool
 from supabase.client import Client, create_client
 from langchain_deepseek import ChatDeepSeek
 from langchain_experimental.tools import PythonREPLTool 
+from sentence_transformers import SentenceTransformer
+import faiss
+import numpy as np
 
 
 
@@ -75,26 +78,37 @@ with open("system_prompt.txt", "r", encoding="utf-8") as f:
 sys_msg = SystemMessage(content=system_prompt)
 
 # build a retriever
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
-supabase: Client = create_client(
-    os.environ.get("SUPABASE_URL"), 
-    os.environ.get("SUPABASE_KEY"))
+class LocalRetriever:
+    def __init__(self, documents):
+        self.documents = documents
+        self.model = SentenceTransformer("all-MiniLM-L6-v2")
 
-vector_store = SupabaseVectorStore(
-    client=supabase,
-    embedding=embeddings,
-    table_name="documents",
-    query_name="match_documents_langchain",
-)
+        embeddings = self.model.encode(documents)
+        self.index = faiss.IndexFlatL2(embeddings.shape[1])
+        self.index.add(np.array(embeddings))
 
-retriever_tool = create_retriever_tool(
-    retriever=vector_store.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 5}
-    ),
-    name="question_search",
-    description="A tool to retrieve similar questions from a vector store.",
-)
+    def search(self, query, k=5):
+        query_embedding = self.model.encode([query])
+        _, indices = self.index.search(query_embedding, k)
+        return [self.documents[i] for i in indices[0]]
+
+
+# Load your data (replace with CSV later if needed)
+documents = [
+    "How to use LangChain for retrieval?",
+    "What is FAISS similarity search?",
+    "How do embeddings work in NLP?",
+    "What is Retrieval Augmented Generation?",
+]
+
+local_retriever = LocalRetriever(documents)
+
+
+@tool
+def retriever_tool(query: str) -> str:
+    """Retrieve similar questions from local vector store."""
+    results = local_retriever.search(query)
+    return "\n\n".join(results)
 
 tools = [
     wiki_search,
@@ -125,7 +139,7 @@ def build_graph():
     #    max_retries=2,
     #)
     
-    #llm_with_tools = llm.bind_tools(tools)
+    llm_with_tools = llm.bind_tools(tools)
 
     def assistant(state: MessagesState):
         """Assistant node"""
@@ -133,12 +147,12 @@ def build_graph():
     
     def retriever(state: MessagesState):
         """Retriever node"""
-        similar_question = vector_store.similarity_search(state["messages"][0].content)
+        similar_question = local_retriever.search(state["messages"][0].content)
         print('Similar questions:')
         print(similar_question)
         if len(similar_question) > 0:
             example_msg = HumanMessage(
-                content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0].page_content}",
+                content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0]}",
             )
             #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
             return {"messages": [sys_msg] + state["messages"] + [example_msg]}
