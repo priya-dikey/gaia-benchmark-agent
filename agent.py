@@ -17,8 +17,7 @@ from langchain_community.llms import YandexGPT
 from langchain_core.tools import tool
 from supabase.client import Client, create_client
 from langchain_deepseek import ChatDeepSeek
-from langchain.tools import PythonREPLTool
-
+from langchain_experimental.tools import PythonREPLTool 
 
 
 
