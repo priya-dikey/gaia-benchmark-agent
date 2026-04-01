@@ -17,6 +17,7 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_experimental.tools import PythonREPLTool 
 from sentence_transformers import SentenceTransformer
 from langchain_community.llms import HuggingFaceHub
+from langchain_huggingface import HuggingFaceEndpoint
 import faiss
 import numpy as np
 
