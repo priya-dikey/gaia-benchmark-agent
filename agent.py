@@ -8,14 +8,11 @@ from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint, HuggingF
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.document_loaders import WikipediaLoader
 from langchain_community.document_loaders import ArxivLoader
-from langchain_community.vectorstores import SupabaseVectorStore
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_community.retrievers import WikipediaRetriever
-from langchain_core.tools import create_retriever_tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.llms import YandexGPT
 from langchain_core.tools import tool
-from supabase.client import Client, create_client
 from langchain_deepseek import ChatDeepSeek
 from langchain_experimental.tools import PythonREPLTool 
 from sentence_transformers import SentenceTransformer
