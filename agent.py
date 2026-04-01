@@ -118,14 +118,14 @@ tools = [
 
 def build_graph():
    llm = HuggingFaceHub(
-    repo_id="google/flan-t5-base",
-    task="text2text-generation", 
-    model_kwargs={
-        "temperature": 0,
-        "max_length": 512
-    },
-    huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN")  # optional if public
-)
+        repo_id="google/flan-t5-base",
+        task="text2text-generation", 
+        model_kwargs={
+            "temperature": 0,
+            "max_length": 512
+        },
+        huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN")  # optional if public
+    )
    # llm = ChatHuggingFace(
    #     llm=HuggingFaceEndpoint(
    #         repo_id = "Qwen/Qwen2.5-Coder-32B-Instruct"
