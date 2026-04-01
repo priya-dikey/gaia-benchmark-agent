@@ -27,6 +27,18 @@ class BasicAgent:
         print(messages)
         answer = messages['messages'][-1].content
         return answer.split("FINAL ANSWER: ")[1]
+def run_agent(task):
+    print("=== RUN_AGENT TRIGGERED ===")
+    print("INPUT:", task)
+    
+    graph = build_graph()
+
+    messages = [HumanMessage(content=task)]
+    result = graph.invoke({"messages": messages})
+
+    print("OUTPUT:", result)
+
+    return result["messages"][-1].content
 
 def run_and_submit_all( profile: gr.OAuthProfile | None):
     """
@@ -179,18 +191,7 @@ with gr.Blocks() as demo:
         fn=run_agent,
         outputs=[status_output, results_table]
     )
-def run_agent(task):
-    print("=== RUN_AGENT TRIGGERED ===")
-    print("INPUT:", task)
-    
-    graph = build_graph()
 
-    messages = [HumanMessage(content=task)]
-    result = graph.invoke({"messages": messages})
-
-    print("OUTPUT:", result)
-
-    return result["messages"][-1].content
     
 if __name__ == "__main__":
     print("\n" + "-"*30 + " App Starting " + "-"*30)
