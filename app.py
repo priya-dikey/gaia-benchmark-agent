@@ -199,4 +199,17 @@ if __name__ == "__main__":
     print("-"*(60 + len(" App Starting ")) + "\n")
 
     print("Launching Gradio Interface for Basic Agent Evaluation...")
-    demo.launch(debug=True, share=True)
+    demo.launch(debug=True, share=False)
+
+    def debug_test():
+    print("RUNNING AGENT TEST")
+
+    graph = build_graph()
+    messages = [HumanMessage(content="What is FAISS?")]
+
+    result = graph.invoke({"messages": messages})
+
+    for m in result["messages"]:
+        print(m)
+
+debug_test()
