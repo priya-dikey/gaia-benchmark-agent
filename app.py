@@ -5,6 +5,8 @@ import inspect
 import pandas as pd
 from agent import build_graph
 from langchain_core.messages import HumanMessage
+from agent import build_graph
+from langchain_core.messages import HumanMessage
 
 # (Keep Constants as is)
 # --- Constants ---
@@ -12,6 +14,15 @@ DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 
 # --- Basic Agent Definition ---
 # ----- THIS IS WERE YOU CAN BUILD WHAT YOU WANT ------
+
+print("APP STARTED")
+
+graph = build_graph()
+messages = [HumanMessage(content="What is FAISS?")]
+
+result = graph.invoke({"messages": messages})
+
+print("FORCED TEST:", result)
 class BasicAgent:
     def __init__(self):
         self.graph = build_graph()
