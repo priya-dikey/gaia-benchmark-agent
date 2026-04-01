@@ -119,18 +119,10 @@ tools = [
 ]
 
 def build_graph():
-    pipe = pipeline(
-        "text2text-generation",
-        model="google/flan-t5-base",
-        max_length=512,
-        temperature=0
-    )
-
-    llm = HuggingFacePipeline(pipeline=pipe)
-    #llm = HuggingFaceEndpoint( 
-        #repo_id = "Qwen/Qwen2.5-Coder-32B-Instruct",
-       # repo_id="HuggingFaceH4/zephyr-7b-beta",
-     #   task="conversational",
+    llm = HuggingFaceEndpoint( 
+        repo_id = "Qwen/Qwen2.5-Coder-32B-Instruct",
+        #repo_id="HuggingFaceH4/zephyr-7b-beta",
+        #task="conversational",
       #  temperature=0.1,
       #  max_new_tokens=500, 
       #  huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN") 
