@@ -121,7 +121,7 @@ def build_graph():
     llm = HuggingFaceEndpoint( 
         #repo_id = "Qwen/Qwen2.5-Coder-32B-Instruct",
         repo_id="HuggingFaceH4/zephyr-7b-beta",
-        task="text-generation",
+        task="conversational",
         temperature=0.1,
         max_new_tokens=500, 
         huggingfacehub_api_token=os.environ.get("HUGGINGFACEHUB_API_TOKEN") 
