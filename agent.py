@@ -19,7 +19,8 @@ from sentence_transformers import SentenceTransformer
 from langchain_community.llms import HuggingFaceHub
 import faiss
 import numpy as np
-
+from transformers import pipeline
+from langchain_community.llms import HuggingFacePipeline
 
 
 load_dotenv()
