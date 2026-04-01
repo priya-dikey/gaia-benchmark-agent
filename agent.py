@@ -17,10 +17,14 @@ from langchain_community.llms import YandexGPT
 from langchain_core.tools import tool
 from supabase.client import Client, create_client
 from langchain_deepseek import ChatDeepSeek
+from langchain.tools import PythonREPLTool
+
 
 
 
 load_dotenv()
+
+python_repl = PythonREPLTool()
 
 @tool
 def wiki_search(query: str) -> str:
@@ -49,6 +53,7 @@ def web_search(query: str) -> str:
             for doc in search_docs
         ])
     return {"web_results": formatted_search_docs}
+    
 
 @tool
 def arvix_search(query: str) -> str:
@@ -96,6 +101,7 @@ tools = [
     wiki_search,
     web_search,
     arvix_search,
+    PythonREPLTool(),
     retriever_tool,
 ]
 
