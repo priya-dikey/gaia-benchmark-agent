@@ -1,206 +1,77 @@
+import json
 import os
-from dotenv import load_dotenv
-from langgraph.graph import START, StateGraph, MessagesState
-from langgraph.prebuilt import tools_condition
-from langgraph.prebuilt import ToolNode
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint, HuggingFaceEmbeddings
-from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_community.document_loaders import WikipediaLoader
-from langchain_community.document_loaders import ArxivLoader
-from langchain_community.vectorstores import SupabaseVectorStore
-from langchain_core.tools import create_retriever_tool
-from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_community.retrievers import WikipediaRetriever
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_community.llms import YandexGPT
+import csv
+import json
+from langchain_core.documents import Document
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
 from langchain_core.tools import tool
-from langchain_deepseek import ChatDeepSeek
-from langchain_experimental.tools import PythonREPLTool 
-from sentence_transformers import SentenceTransformer
-from langchain_community.llms import HuggingFaceHub
-from langchain_huggingface import HuggingFaceEndpoint
-from transformers import pipeline
-from langchain_community.llms import HuggingFacePipeline
-from supabase.client import Client, create_client
-from langchain_core.messages import AIMessage
-import numpy as np
+from langgraph.graph import StateGraph, MessagesState
+
+INPUT_CSV = "data_clean.csv"
+
+def load_docs(csv_path):
+    docs = []
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            content = row["content"]
+
+            try:
+                metadata = json.loads(row.get("metadata", "{}"))
+            except json.JSONDecodeError:
+                metadata = {}
+
+            docs.append(Document(page_content=content, metadata=metadata))
+    return docs
 
 
-load_dotenv()
+docs = load_docs(INPUT_CSV)
 
-python_repl = PythonREPLTool()
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
 
-@tool
-def wiki_search(query: str) -> str:
-    """Search Wikipedia for a query and return maximum 2 results.
-    
-    Args:
-        query: The search query."""
-    search_docs = WikipediaLoader(query=query, load_max_docs=2).load()
-    formatted_search_docs = "\n\n---\n\n".join(
-        [
-            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
-            for doc in search_docs
-        ])
-    return {"wiki_results": formatted_search_docs}
-
-@tool
-def web_search(query: str) -> str:
-    """Search Tavily for a query and return maximum 3 results.
-    
-    Args:
-        query: The search query."""
-    search_docs = TavilySearchResults(max_results=3).invoke(query=query)
-    formatted_search_docs = "\n\n---\n\n".join(
-        [
-            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
-            for doc in search_docs
-        ])
-    return {"web_results": formatted_search_docs}
-    
-
-@tool
-def arvix_search(query: str) -> str:
-    """Search Arxiv for a query and return maximum 3 result.
-    
-    Args:
-        query: The search query."""
-    search_docs = ArxivLoader(query=query, load_max_docs=3).load()
-    formatted_search_docs = "\n\n---\n\n".join(
-        [
-            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content[:1000]}\n</Document>'
-            for doc in search_docs
-        ])
-    return {"arvix_results": formatted_search_docs}
-
-with open("system_prompt.txt", "r", encoding="utf-8") as f:
-    system_prompt = f.read()
-
-# System message
-sys_msg = SystemMessage(content=system_prompt)
-
-# build a retriever
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
-supabase: Client = create_client(
-  os.environ.get("SUPABASE_URL"), 
-   os.environ.get("SUPABASE_KEY"))
-
-vector_store = SupabaseVectorStore(
-   client=supabase,
-   embedding=embeddings,
-   table_name="documents",
-    query_name="match_documents_langchain",
+vector_store = Chroma.from_documents(
+    docs,
+    embeddings,
+    persist_directory="chroma_db"
 )
+vector_store.persist()
+print("Векторная база создана и сохранена в 'chroma_db'")
 
-retriever_tool = create_retriever_tool(
-   retriever=vector_store.as_retriever(),
-    name="question_search",
-    description="A tool to retrieve similar questions from a vector store.",
-)
-# class SimpleRetriever:
-#     def __init__(self, documents):
-#         self.documents = documents
-#         self.model = SentenceTransformer("all-MiniLM-L6-v2")
 
-#         # Precompute embeddings
-#         self.embeddings = self.model.encode(documents)
+def find_answer(query, k=1) -> str:
+    """
+    Searches for an answer in the vector database based on the user's query.
+    Returns a string with the final answer or the last text of the document.
+    :param query: User query
+    :param k: number of possible answers
+    :return: User's answer
+    """
+    results = vector_store.similarity_search(query, k=k)
+    if not results:
+        return "Ответ не найден"
 
-#     def search(self, query, k=3):
-#         query_embedding = self.model.encode([query])[0]
+    content = results[0].page_content
 
-#         # Cosine similarity
-#         scores = np.dot(self.embeddings, query_embedding) / (
-#             np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_embedding)
-#         )
+    if "Final answer :" in content:
+        return content.split("Final answer :", 1)[1].strip()
+    elif "Answer:" in content:
+        return content.split("Answer:", 1)[1].strip()
+    else:
+        return content.strip().splitlines()[-1]
 
-#         top_k_idx = np.argsort(scores)[-k:][::-1]
-
-#         return [self.documents[i] for i in top_k_idx]
-        
-# documents = [
-#     "LangChain helps build LLM applications.",
-#     "FAISS is used for similarity search.",
-#     "Retrieval Augmented Generation improves LLM accuracy.",
-#     "Embeddings convert text into vectors."
-# ]
-
-# simple_retriever = SimpleRetriever(documents)
-
-# @tool
-# def retriever_tool(query: str) -> str:
-#     """Searches the local document store and returns the most relevant context."""
-#     results = simple_retriever.search(query, k=3)
-#     return "\n".join(results)
-
-tools = [
-    wiki_search,
-    web_search,
-    arvix_search,
-    PythonREPLTool(),
-]
 
 def build_graph():
-    llm = ChatHuggingFace(
-        llm=HuggingFaceEndpoint(
-            repo_id="Qwen/Qwen2.5-Coder-32B-Instruct"
-        ),
-    )
-
-    llm_with_tools = llm.bind_tools(tools)
-
-    def assistant(state: MessagesState):
-        """Assistant node"""
-        return {"messages": [llm_with_tools.invoke(state["messages"])]}
-
-    def retriever(state: MessagesState):
-        query = state["messages"][-1].content
-        similar_doc = vector_store.similarity_search(query, k=1)[0]
-
-        content = similar_doc.page_content
-        if "Final answer :" in content:
-            answer = content.split("Final answer :")[-1].strip()
-        else:
-            answer = content.strip()
-
-        return {"messages": [AIMessage(content=answer)]}
-
-    # def retriever(state: MessagesState):
-    #     """Retriever node"""
-    #     query = state["messages"][0].content
-    #     results = simple_retriever.search(query, k=3)
-    #     print('Similar questions:')
-    #     #print(similar_question)
-    #     if len(results) > 0:
-    #         example_msg = HumanMessage(
-    #             content=f"Use this context to answer the question: \n\n{results[0]} Answer clearly and accurately.",
-    #         )
-    #         #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
-    #         return {"messages": [sys_msg] + state["messages"] + [example_msg]}
-    #     return {"messages": [sys_msg] + state["messages"]}
+    def retriever_node(state: MessagesState):
+        user_query = state["messages"][-1].content
+        answer_text = find_answer(user_query)
+        return {"messages": state["messages"] + [AIMessage(content=answer_text)]}
 
     builder = StateGraph(MessagesState)
-    builder.add_node("retriever", retriever)
-    builder.add_node("assistant", assistant)
-    builder.add_node("tools", ToolNode(tools))
-
-    builder.add_edge(START, "retriever")
-    builder.add_edge("retriever", "assistant")
-
-    builder.add_conditional_edges(
-        "assistant",
-        tools_condition,
-    )
-
-    builder.add_edge("tools", "assistant")
-
+    builder.add_node("retriever", retriever_node)
+    builder.set_entry_point("retriever")
+    builder.set_finish_point("retriever")
     return builder.compile()
-    
-    # test
-if __name__ == "__main__":
-    question = "When was a picture of St. Thomas Aquinas first added to the Wikipedia page on the Principle of double effect?"
-    graph = build_graph()
-    messages = [HumanMessage(content=question)]
-    messages = graph.invoke({"messages": messages})
-    for m in messages["messages"]:
-        m.pretty_print()
+
+graph = build_graph()
