@@ -162,7 +162,7 @@ def build_graph():
         query = state["messages"][0].content
         results = simple_retriever.search(query, k=3)
         print('Similar questions:')
-        print(similar_question)
+        #print(similar_question)
         if len(results) > 0:
             example_msg = HumanMessage(
                 content=f"Here I provide a similar question and answer for reference: \n\n{results[0]}",
