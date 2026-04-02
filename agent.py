@@ -23,7 +23,7 @@ from langchain_huggingface import HuggingFaceEndpoint
 from transformers import pipeline
 from langchain_community.llms import HuggingFacePipeline
 from supabase.client import Client, create_client
-import faiss
+from langchain_core.messages import AIMessage
 import numpy as np
 
 
@@ -152,8 +152,6 @@ def build_graph():
     def assistant(state: MessagesState):
         """Assistant node"""
         return {"messages": [llm_with_tools.invoke(state["messages"])]}
-
-from langchain_core.messages import AIMessage
 
     def retriever(state: MessagesState):
         query = state["messages"][-1].content
