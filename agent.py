@@ -151,11 +151,11 @@ def build_graph():
         ),
     )
 
-    # llm_with_tools = llm.bind_tools(tools)
+    llm_with_tools = llm.bind_tools(tools)
 
     def assistant(state: MessagesState):
         """Assistant node"""
-        return {"messages": [llm.invoke(state["messages"])]}
+        return {"messages": [llm_with_tools.invoke(state["messages"])]}
 
     def retriever(state: MessagesState):
         """Retriever node"""
@@ -165,7 +165,7 @@ def build_graph():
         #print(similar_question)
         if len(results) > 0:
             example_msg = HumanMessage(
-                content=f"Here I provide a similar question and answer for reference: \n\n{results[0]}",
+                content=f"Use this context to answer the question: \n\n{results[0]} Answer clearly and accurately.",
             )
             #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
             return {"messages": [sys_msg] + state["messages"] + [example_msg]}
