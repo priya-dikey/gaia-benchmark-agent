@@ -128,12 +128,12 @@ documents = [
     "Embeddings convert text into vectors."
 ]
 
-retriever = SimpleRetriever(documents)
+simple_retriever = SimpleRetriever(documents)
 
 @tool
 def retriever_tool(query: str) -> str:
     """Searches the local document store and returns the most relevant context."""
-    results = retriever.search(query, k=3)
+    results = simple_retriever.search(query, k=3)
     return "\n".join(results)
 
 tools = [
@@ -160,7 +160,7 @@ def build_graph():
     def retriever(state: MessagesState):
         """Retriever node"""
         query = state["messages"][0].content
-        results = retriever.search(query, k=3)
+        results = simple_retriever.search(query, k=3)
         print('Similar questions:')
         print(similar_question)
         if len(results) > 0:
