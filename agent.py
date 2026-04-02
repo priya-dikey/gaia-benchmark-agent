@@ -159,12 +159,13 @@ def build_graph():
 
     def retriever(state: MessagesState):
         """Retriever node"""
-        similar_question = vector_store.similarity_search(state["messages"][0].content)
+        query = state["messages"][0].content
+        results = retriever.search(query, k=3)
         print('Similar questions:')
         print(similar_question)
-        if len(similar_question) > 0:
+        if len(results) > 0:
             example_msg = HumanMessage(
-                content=f"Here I provide a similar question and answer for reference: \n\n{similar_question[0].page_content}",
+                content=f"Here I provide a similar question and answer for reference: \n\n{results[0]}",
             )
             #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
             return {"messages": [sys_msg] + state["messages"] + [example_msg]}
