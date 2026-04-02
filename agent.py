@@ -81,67 +81,63 @@ with open("system_prompt.txt", "r", encoding="utf-8") as f:
 sys_msg = SystemMessage(content=system_prompt)
 
 # build a retriever
-#embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
-#supabase: Client = create_client(
-#   os.environ.get("SUPABASE_URL"), 
-#    os.environ.get("SUPABASE_KEY"))
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2") #  dim=768
+supabase: Client = create_client(
+  os.environ.get("SUPABASE_URL"), 
+   os.environ.get("SUPABASE_KEY"))
 
-#vector_store = SupabaseVectorStore(
- #   client=supabase,
-  #  embedding=embeddings,
-   # table_name="documents",
-    #query_name="match_documents_langchain",
-#)
+vector_store = SupabaseVectorStore(
+   client=supabase,
+   embedding=embeddings,
+   table_name="documents",
+    query_name="match_documents_langchain",
+)
 
-#retriever_tool = create_retriever_tool(
- #   retriever=vector_store.as_retriever(
-  #      search_type="similarity",
-   #     search_kwargs={"k": 5}
-    #),
-    #name="question_search",
-    #description="A tool to retrieve similar questions from a vector store.",
-#)
-class SimpleRetriever:
-    def __init__(self, documents):
-        self.documents = documents
-        self.model = SentenceTransformer("all-MiniLM-L6-v2")
+retriever_tool = create_retriever_tool(
+   retriever=vector_store.as_retriever(),
+    name="question_search",
+    description="A tool to retrieve similar questions from a vector store.",
+)
+# class SimpleRetriever:
+#     def __init__(self, documents):
+#         self.documents = documents
+#         self.model = SentenceTransformer("all-MiniLM-L6-v2")
 
-        # Precompute embeddings
-        self.embeddings = self.model.encode(documents)
+#         # Precompute embeddings
+#         self.embeddings = self.model.encode(documents)
 
-    def search(self, query, k=3):
-        query_embedding = self.model.encode([query])[0]
+#     def search(self, query, k=3):
+#         query_embedding = self.model.encode([query])[0]
 
-        # Cosine similarity
-        scores = np.dot(self.embeddings, query_embedding) / (
-            np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_embedding)
-        )
+#         # Cosine similarity
+#         scores = np.dot(self.embeddings, query_embedding) / (
+#             np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_embedding)
+#         )
 
-        top_k_idx = np.argsort(scores)[-k:][::-1]
+#         top_k_idx = np.argsort(scores)[-k:][::-1]
 
-        return [self.documents[i] for i in top_k_idx]
+#         return [self.documents[i] for i in top_k_idx]
         
-documents = [
-    "LangChain helps build LLM applications.",
-    "FAISS is used for similarity search.",
-    "Retrieval Augmented Generation improves LLM accuracy.",
-    "Embeddings convert text into vectors."
-]
+# documents = [
+#     "LangChain helps build LLM applications.",
+#     "FAISS is used for similarity search.",
+#     "Retrieval Augmented Generation improves LLM accuracy.",
+#     "Embeddings convert text into vectors."
+# ]
 
-simple_retriever = SimpleRetriever(documents)
+# simple_retriever = SimpleRetriever(documents)
 
-@tool
-def retriever_tool(query: str) -> str:
-    """Searches the local document store and returns the most relevant context."""
-    results = simple_retriever.search(query, k=3)
-    return "\n".join(results)
+# @tool
+# def retriever_tool(query: str) -> str:
+#     """Searches the local document store and returns the most relevant context."""
+#     results = simple_retriever.search(query, k=3)
+#     return "\n".join(results)
 
 tools = [
     wiki_search,
     web_search,
     arvix_search,
     PythonREPLTool(),
-    retriever_tool,
 ]
 
 def build_graph():
@@ -157,19 +153,33 @@ def build_graph():
         """Assistant node"""
         return {"messages": [llm_with_tools.invoke(state["messages"])]}
 
+from langchain_core.messages import AIMessage
+
     def retriever(state: MessagesState):
-        """Retriever node"""
-        query = state["messages"][0].content
-        results = simple_retriever.search(query, k=3)
-        print('Similar questions:')
-        #print(similar_question)
-        if len(results) > 0:
-            example_msg = HumanMessage(
-                content=f"Use this context to answer the question: \n\n{results[0]} Answer clearly and accurately.",
-            )
-            #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
-            return {"messages": [sys_msg] + state["messages"] + [example_msg]}
-        return {"messages": [sys_msg] + state["messages"]}
+        query = state["messages"][-1].content
+        similar_doc = vector_store.similarity_search(query, k=1)[0]
+
+        content = similar_doc.page_content
+        if "Final answer :" in content:
+            answer = content.split("Final answer :")[-1].strip()
+        else:
+            answer = content.strip()
+
+        return {"messages": [AIMessage(content=answer)]}
+
+    # def retriever(state: MessagesState):
+    #     """Retriever node"""
+    #     query = state["messages"][0].content
+    #     results = simple_retriever.search(query, k=3)
+    #     print('Similar questions:')
+    #     #print(similar_question)
+    #     if len(results) > 0:
+    #         example_msg = HumanMessage(
+    #             content=f"Use this context to answer the question: \n\n{results[0]} Answer clearly and accurately.",
+    #         )
+    #         #return {"messages": [{"role": "system", "content": similar_question[0].page_content}]}
+    #         return {"messages": [sys_msg] + state["messages"] + [example_msg]}
+    #     return {"messages": [sys_msg] + state["messages"]}
 
     builder = StateGraph(MessagesState)
     builder.add_node("retriever", retriever)
