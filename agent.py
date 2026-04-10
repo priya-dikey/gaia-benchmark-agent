@@ -320,6 +320,19 @@ def web_search(query: str) -> str:
     except Exception as e:
         return f"Web search error: {e}"
 
+def web_search_new(query: str) -> str:
+    """Search Tavily for a query and return maximum 3 results.
+    
+    Args:
+        query: The search query."""
+    search_docs = TavilySearchResults(max_results=3).invoke(query=query)
+    formatted_search_docs = "\n\n---\n\n".join(
+        [
+            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
+            for doc in search_docs
+        ])
+    return {"web_results": formatted_search_docs}        
+
 
 def calculator(expression: str) -> str:
     """Safe math eval with Python's math module."""
@@ -343,8 +356,20 @@ def wikipedia(query: str) -> str:
     except Exception as e:
         return f"Wikipedia error: {e}"
 
-
-TOOLS = {"web_search": web_search, "calculator": calculator, "wikipedia": wikipedia}
+def arvix_search(query: str) -> str:
+    """Search Arxiv for a query and return maximum 3 result.
+    
+    Args:
+        query: The search query."""
+    search_docs = ArxivLoader(query=query, load_max_docs=3).load()
+    formatted_search_docs = "\n\n---\n\n".join(
+        [
+            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content[:1000]}\n</Document>'
+            for doc in search_docs
+        ])
+    return {"arvix_results": formatted_search_docs}
+    
+TOOLS = {"web_search": web_search_new, "calculator": calculator, "wikipedia": wikipedia,"arxiv_search": arvix_search,}
 
 TOOL_SCHEMAS = [
     {
