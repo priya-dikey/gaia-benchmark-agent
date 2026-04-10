@@ -12,9 +12,10 @@ from langgraph.graph import StateGraph, MessagesState
 #   "Qwen/Qwen2.5-72B-Instruct"          ← default, strong & fast
 #   "meta-llama/Llama-3.3-70B-Instruct"
 #   "mistralai/Mistral-7B-Instruct-v0.3"
-MODEL = "Qwen/Qwen2.5-72B-Instruct"
 
-HF_API_URL = f"https://api-inference.huggingface.co/models/{MODEL}/v1/chat/completions"
+MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+
+HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
 MAX_TOKENS = 1024
 MAX_ITERATIONS = 8  # safety cap on agentic rounds
 
