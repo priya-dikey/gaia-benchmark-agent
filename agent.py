@@ -266,37 +266,37 @@ def handle_attachment(task_id: str, filename: str, question: str) -> str | None:
         return f"[Unsupported attachment type: '{filename}' — cannot process {ext} files]"
 
 
-# def web_search(query: str) -> str:
-#     """DuckDuckGo Instant Answer API — no key required."""
-#     try:
-#         r = requests.get(
-#             "https://api.duckduckgo.com/",
-#             params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
-#             timeout=10,
-#         )
-#         data = r.json()
-#         if data.get("AbstractText"):
-#             return data["AbstractText"]
-#         snippets = [
-#             t["Text"] for t in data.get("RelatedTopics", [])[:3]
-#             if isinstance(t, dict) and t.get("Text")
-#         ]
-#         return "\n".join(snippets) if snippets else f"No results found for: {query}"
-#     except Exception as e:
-#         return f"Web search error: {e}"
+def web_search(query: str) -> str:
+    """DuckDuckGo Instant Answer API — no key required."""
+    try:
+        r = requests.get(
+            "https://api.duckduckgo.com/",
+            params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
+            timeout=10,
+        )
+        data = r.json()
+        if data.get("AbstractText"):
+            return data["AbstractText"]
+        snippets = [
+            t["Text"] for t in data.get("RelatedTopics", [])[:3]
+            if isinstance(t, dict) and t.get("Text")
+        ]
+        return "\n".join(snippets) if snippets else f"No results found for: {query}"
+    except Exception as e:
+        return f"Web search error: {e}"
 
-def web_search_new(query: str) -> str:
-    """Search Tavily for a query and return maximum 3 results.
+# def web_search_new(query: str) -> str:
+#     """Search Tavily for a query and return maximum 3 results.
     
-    Args:
-        query: The search query."""
-    search_docs = TavilySearchResults(max_results=3).invoke(query=query)
-    formatted_search_docs = "\n\n---\n\n".join(
-        [
-            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
-            for doc in search_docs
-        ])
-    return {"web_results": formatted_search_docs}        
+#     Args:
+#         query: The search query."""
+#     search_docs = TavilySearchResults(max_results=3).invoke(query=query)
+#     formatted_search_docs = "\n\n---\n\n".join(
+#         [
+#             f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
+#             for doc in search_docs
+#         ])
+#     return {"web_results": formatted_search_docs}        
 
 
 def calculator(expression: str) -> str:
@@ -334,7 +334,7 @@ def arvix_search(query: str) -> str:
         ])
     return {"arvix_results": formatted_search_docs}
     
-TOOLS = {"web_search": web_search_new, "calculator": calculator, "wikipedia": wikipedia,"arxiv_search": arvix_search,}
+TOOLS = {"web_search": web_search, "calculator": calculator, "wikipedia": wikipedia,"arxiv_search": arvix_search,}
 
 TOOL_SCHEMAS = [
     {
