@@ -6,6 +6,8 @@ import base64
 import tempfile
 import mimetypes
 import requests
+from langchain_community.document_loaders import ArxivLoader
+from langchain_community.tools.tavily_search import TavilySearchResults
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -264,24 +266,24 @@ def handle_attachment(task_id: str, filename: str, question: str) -> str | None:
         return f"[Unsupported attachment type: '{filename}' — cannot process {ext} files]"
 
 
-def web_search(query: str) -> str:
-    """DuckDuckGo Instant Answer API — no key required."""
-    try:
-        r = requests.get(
-            "https://api.duckduckgo.com/",
-            params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
-            timeout=10,
-        )
-        data = r.json()
-        if data.get("AbstractText"):
-            return data["AbstractText"]
-        snippets = [
-            t["Text"] for t in data.get("RelatedTopics", [])[:3]
-            if isinstance(t, dict) and t.get("Text")
-        ]
-        return "\n".join(snippets) if snippets else f"No results found for: {query}"
-    except Exception as e:
-        return f"Web search error: {e}"
+# def web_search(query: str) -> str:
+#     """DuckDuckGo Instant Answer API — no key required."""
+#     try:
+#         r = requests.get(
+#             "https://api.duckduckgo.com/",
+#             params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
+#             timeout=10,
+#         )
+#         data = r.json()
+#         if data.get("AbstractText"):
+#             return data["AbstractText"]
+#         snippets = [
+#             t["Text"] for t in data.get("RelatedTopics", [])[:3]
+#             if isinstance(t, dict) and t.get("Text")
+#         ]
+#         return "\n".join(snippets) if snippets else f"No results found for: {query}"
+#     except Exception as e:
+#         return f"Web search error: {e}"
 
 def web_search_new(query: str) -> str:
     """Search Tavily for a query and return maximum 3 results.
