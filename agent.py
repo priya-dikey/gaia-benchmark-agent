@@ -53,23 +53,49 @@ with open(_PROMPT_FILE, "r", encoding="utf-8") as _f:
 # Tool implementations
 # ─────────────────────────────────────────────────────────────────────────────
 
+# def web_search(query: str) -> str:
+#     """DuckDuckGo Instant Answer API — no key required."""
+#     try:
+#         url = "https://api.duckduckgo.com/"
+#         params = {"q": query, "format": "json", "no_html": 1, "skip_disambig": 1}
+#         r = requests.get(url, params=params, timeout=10)
+#         data = r.json()
+#         if data.get("AbstractText"):
+#             return data["AbstractText"]
+#         snippets = [
+#             t["Text"] for t in data.get("RelatedTopics", [])[:3]
+#             if isinstance(t, dict) and t.get("Text")
+#         ]
+#         return "\n".join(snippets) if snippets else f"No results found for: {query}"
+#     except Exception as e:
+#         return f"Web search error: {e}"
+        
 def web_search(query: str) -> str:
-    """DuckDuckGo Instant Answer API — no key required."""
-    try:
-        url = "https://api.duckduckgo.com/"
-        params = {"q": query, "format": "json", "no_html": 1, "skip_disambig": 1}
-        r = requests.get(url, params=params, timeout=10)
-        data = r.json()
-        if data.get("AbstractText"):
-            return data["AbstractText"]
-        snippets = [
-            t["Text"] for t in data.get("RelatedTopics", [])[:3]
-            if isinstance(t, dict) and t.get("Text")
+    """Search Tavily for a query and return maximum 3 results.
+    Args:
+        query: The search query."""
+    search_docs = TavilySearchResults(max_results=3).invoke(query)
+    formatted_search_docs = "\n\n---\n\n".join(
+        [
+            f'<Document source="{doc.get("url", "")}" title="{doc.get("title", "")}"/>\n{doc.get("content", "")}\n</Document>'
+            for doc in search_docs
         ]
-        return "\n".join(snippets) if snippets else f"No results found for: {query}"
-    except Exception as e:
-        return f"Web search error: {e}"
+    )
+    return {"web_results": formatted_search_docs}
 
+def arxiv_search(query: str) -> str:
+    """Search Arxiv for a query and return maximum 3 result.
+    Args:
+        query: The search query."""
+    search_docs = ArxivLoader(query=query, load_max_docs=3).load()
+    formatted_search_docs = "\n\n---\n\n".join(
+        [
+            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content[:1000]}\n</Document>'
+            for doc in search_docs
+        ]
+    )
+    return {"arxiv_results": formatted_search_docs}
+        
 
 def calculator(expression: str) -> str:
     """Safe math eval with Python's math module."""
@@ -98,6 +124,7 @@ TOOLS = {
     "web_search": web_search,
     "calculator": calculator,
     "wikipedia": wikipedia,
+    "search": arxiv_search,
 }
 
 # OpenAI-compatible tool schemas (HF Inference uses this format)
