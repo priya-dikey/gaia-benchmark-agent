@@ -4,3 +4,7 @@ langchain-core
 langgraph
 pandas
 python-dotenv
+# PDF text extraction (for GAIA PDF attachments)
+pdfminer.six
+# Video frame extraction (for GAIA video attachments)
+opencv-python-headless
