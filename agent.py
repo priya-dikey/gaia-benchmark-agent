@@ -1,12 +1,3 @@
-"""
-GAIA Benchmark Agent — powered by Hugging Face Inference API
-Architecture mirrors the original LangGraph StateGraph structure.
-Uses HF's OpenAI-compatible chat completions endpoint with tool calling.
-
-Model: Qwen/Qwen2.5-72B-Instruct  (change MODEL below to swap)
-Key:   HF_TOKEN environment variable (a HF token with Inference permission)
-"""
-
 import os
 import json
 import re
@@ -18,40 +9,19 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import StateGraph, MessagesState
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Model config — swap MODEL to any HF Inference-supported chat model
-# ─────────────────────────────────────────────────────────────────────────────
 
-# Good options with reliable tool-calling support via HF router:
-#   "meta-llama/Llama-3.3-70B-Instruct"   ← default, widely supported
-#   "Qwen/Qwen2.5-72B-Instruct"
-#   "mistralai/Mistral-7B-Instruct-v0.3"
-#
-# Append ":provider" to pin a specific backend, e.g. "meta-llama/Llama-3.3-70B-Instruct:sambanova"
-# Available providers: sambanova, together, fireworks-ai, nebius, novita, groq, cerebras
 MODEL = "Qwen/Qwen2.5-72B-Instruct"
 
-# HF router — automatically picks the fastest available provider for the model.
-# Replaces the old per-model endpoint that would return 410 Gone when a model
-# was rotated off the serverless fleet.
 HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
 MAX_TOKENS = 1024
 MAX_ITERATIONS = 8  # safety cap on agentic rounds
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# System prompt — loaded from system_prompt.txt (same directory as this file)
-# ─────────────────────────────────────────────────────────────────────────────
 
 _PROMPT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "system_prompt.txt")
 
 with open(_PROMPT_FILE, "r", encoding="utf-8") as _f:
     SYSTEM_PROMPT = _f.read()
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Tool implementations
-# ─────────────────────────────────────────────────────────────────────────────
 
 # def web_search(query: str) -> str:
 #     """DuckDuckGo Instant Answer API — no key required."""
@@ -179,11 +149,6 @@ TOOL_SCHEMAS = [
     },
 ]
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HF Inference API caller
-# ─────────────────────────────────────────────────────────────────────────────
-
 def call_hf(messages: list[dict], use_tools: bool = True) -> dict:
     """
     Call the HF router OpenAI-compatible chat completions endpoint.
@@ -220,10 +185,6 @@ def call_hf(messages: list[dict], use_tools: bool = True) -> dict:
     response.raise_for_status()
     return response.json()
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Agentic loop
-# ─────────────────────────────────────────────────────────────────────────────
 
 def run_agent(question: str) -> str:
     """
@@ -310,11 +271,6 @@ def extract_final_answer(text: str) -> str:
         return match.group(1).strip()
     lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
     return lines[-1] if lines else text.strip()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# LangGraph graph — same interface as the original architecture
-# ─────────────────────────────────────────────────────────────────────────────
 
 def build_graph():
     def hf_agent_node(state: MessagesState):
