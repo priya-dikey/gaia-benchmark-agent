@@ -29,7 +29,7 @@ from langgraph.graph import StateGraph, MessagesState
 #
 # Append ":provider" to pin a specific backend, e.g. "meta-llama/Llama-3.3-70B-Instruct:sambanova"
 # Available providers: sambanova, together, fireworks-ai, nebius, novita, groq, cerebras
-MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+MODEL = "meta-llama/Llama-3.3-70B-Instruct:sambanova"
 
 # HF router — automatically picks the fastest available provider for the model.
 # Replaces the old per-model endpoint that would return 410 Gone when a model
