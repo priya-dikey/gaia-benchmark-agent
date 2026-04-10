@@ -1,6 +1,8 @@
 gradio
 requests
 langchain-core
+langchain
+langchain-community
 langgraph
 pandas
 python-dotenv
