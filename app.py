@@ -19,7 +19,7 @@ class BasicAgent:
 
     def __init__(self):
         print("BasicAgent (HF Inference) initialized.")
-        if not os.environ.get("HF_TOKEN"):
+        if not os.environ.get("HUGGINGFACEHUB_API_TOKEN"):
             raise EnvironmentError(
                 "HF_TOKEN environment variable not set. "
                 "Add it as a HF Space secret or in your .env file."
