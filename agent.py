@@ -504,11 +504,20 @@ def run_agent(question: str, task_id: str = "", file_name: str = "") -> str:
 def extract_final_answer(text: str) -> str:
     if not text:
         return ""
+
     match = re.search(r"FINAL ANSWER:\s*(.+)", text, re.IGNORECASE | re.DOTALL)
     if match:
-        return match.group(1).strip()
-    lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
-    return lines[-1] if lines else text.strip()
+        ans = match.group(1).strip()
+    else:
+        lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
+        ans = lines[-1] if lines else text.strip()
+
+    ans = ans.strip()
+    ans = re.sub(r"^The answer is[:\s]*", "", ans, flags=re.IGNORECASE)
+    ans = re.sub(r"[\.。\s]+$", "", ans)  # remove trailing dots/spaces
+    ans = ans.replace(",", "")  # numbers like 1,000 → 1000
+
+    return ans
 
 def build_graph():
     def hf_agent_node(state: MessagesState):
