@@ -18,6 +18,10 @@ HF_API_URL = f"https://api-inference.huggingface.co/models/{MODEL}/v1/chat/compl
 MAX_TOKENS = 1024
 MAX_ITERATIONS = 8  # safety cap on agentic rounds
 
+_PROMPT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "system_prompt.txt")
+ 
+with open(_PROMPT_FILE, "r", encoding="utf-8") as _f:
+    SYSTEM_PROMPT = _f.read()
 
 def web_search(query: str) -> str:
     """DuckDuckGo Instant Answer API — no key required."""
