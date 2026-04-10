@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from langchain_core.messages import HumanMessage
 
-from agent import build_graph  # our Claude-powered agent
+from agent import build_graph 
 
 load_dotenv()
 
