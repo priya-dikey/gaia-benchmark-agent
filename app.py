@@ -145,7 +145,7 @@ with gr.Blocks() as demo:
     gr.Markdown(
         """
 **Instructions:**
-1. Set `HF_TOKEN` as a HF Space secret (Settings → Variables and secrets → New secret).
+1. Set `HUGGINGFACEHUB_API_TOKEN` as a HF Space secret (Settings → Variables and secrets → New secret).
    Your token needs **Inference** permission (a free HF account token works).
 2. Log in to your Hugging Face account using the button below.
 3. Click **Run Evaluation & Submit All Answers**.
