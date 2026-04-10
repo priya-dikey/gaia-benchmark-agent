@@ -1,14 +1,3 @@
-"""
-GAIA Benchmark Agent — powered by Hugging Face Inference API
-Supports: text questions, image attachments, video (frame extraction), PDFs, text files
-
-Models:
-  TEXT  : meta-llama/Llama-3.3-70B-Instruct  (tool-calling)
-  VISION: meta-llama/Llama-3.2-11B-Vision-Instruct  (image understanding)
-
-Key: HF_TOKEN  (or HUGGINGFACEHUB_API_TOKEN)
-"""
-
 import os
 import re
 import json
@@ -23,17 +12,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import StateGraph, MessagesState
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Model config
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Text + tool-calling model (no vision)
-# Qwen2.5-72B has more reliable JSON-format tool calling than Llama-3.3-70B
-# Alternative: "meta-llama/Llama-3.3-70B-Instruct" (may emit XML-style calls)
 TEXT_MODEL = "Qwen/Qwen2.5-72B-Instruct"
 
-# Vision model — handles images and video frames
-# Alternatives: "Qwen/Qwen2.5-VL-7B-Instruct", "google/gemma-3-27b-it"
 VISION_MODEL = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
 HF_API_URL    = "https://router.huggingface.co/v1/chat/completions"
@@ -47,18 +27,9 @@ VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv"}
 AUDIO_EXTS = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# System prompt
-# ─────────────────────────────────────────────────────────────────────────────
-
 _PROMPT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "system_prompt.txt")
 with open(_PROMPT_FILE, "r", encoding="utf-8") as _f:
     SYSTEM_PROMPT = _f.read()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# HF API helper
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _hf_token() -> str:
     return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN", "")
@@ -96,10 +67,6 @@ def call_hf(messages: list[dict], model: str, tools: list | None = None) -> dict
     response.raise_for_status()
     return response.json()
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Multimodal helpers
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _fetch_task_file(task_id: str) -> bytes | None:
     """Download the attached file for a GAIA task from the scoring API."""
@@ -297,10 +264,6 @@ def handle_attachment(task_id: str, filename: str, question: str) -> str | None:
         return f"[Unsupported attachment type: '{filename}' — cannot process {ext} files]"
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Tool implementations
-# ─────────────────────────────────────────────────────────────────────────────
-
 def web_search(query: str) -> str:
     """DuckDuckGo Instant Answer API — no key required."""
     try:
@@ -412,10 +375,6 @@ TOOL_SCHEMAS = [
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# XML tool-call fallback parser
-# ─────────────────────────────────────────────────────────────────────────────
-
 def _parse_xml_tool_calls(text: str) -> list[dict]:
     """
     Some models (e.g. Llama-3.3) emit tool calls in an old XML format:
@@ -451,10 +410,6 @@ def _parse_xml_tool_calls(text: str) -> list[dict]:
             "function": {"name": name, "arguments": args_str},
         })
     return calls
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Core agentic loop
-# ─────────────────────────────────────────────────────────────────────────────
 
 def run_agent(question: str, task_id: str = "", file_name: str = "") -> str:
     """
