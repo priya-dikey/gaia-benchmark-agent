@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from langchain_core.messages import HumanMessage
 
-from agent import build_graph 
+from agent import build_graph  
 
 load_dotenv()
 
@@ -19,16 +19,19 @@ class BasicAgent:
 
     def __init__(self):
         print("BasicAgent (HF Inference) initialized.")
-        if not os.environ.get("HUGGINGFACEHUB_API_TOKEN"):
+        if not (os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN")):
             raise EnvironmentError(
-                "HUGGINGFACEHUB_API_TOKEN environment variable not set. "
-                "Add it as a HF Space secret or in your .env file."
+                "No HF token found. Set HF_TOKEN or HUGGINGFACEHUB_API_TOKEN "
+                "as a HF Space secret or in your .env file."
             )
         self.graph = build_graph()
 
-    def __call__(self, question: str) -> str:
+    def __call__(self, question: str, task_id: str = "", file_name: str = "") -> str:
         print(f"Agent received question (first 80 chars): {question[:80]}...")
-        messages = [HumanMessage(content=question)]
+        messages = [HumanMessage(
+            content=question,
+            additional_kwargs={"task_id": task_id, "file_name": file_name},
+        )]
         result = self.graph.invoke({"messages": messages})
 
         if not isinstance(result, dict):
@@ -88,7 +91,8 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
             print(f"Skipping item with missing task_id or question: {item}")
             continue
         try:
-            submitted_answer = agent(question_text)
+            file_name = item.get("file_name", "")
+            submitted_answer = agent(question_text, task_id=task_id, file_name=file_name)
             answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
             results_log.append({
                 "Task ID": task_id,
