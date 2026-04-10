@@ -1,14 +1,3 @@
-"""
-GAIA Benchmark Agent — powered by Hugging Face Inference API
-Supports: text questions, image attachments, video (frame extraction), PDFs, text files
-
-Models:
-  TEXT  : meta-llama/Llama-3.3-70B-Instruct  (tool-calling)
-  VISION: meta-llama/Llama-3.2-11B-Vision-Instruct  (image understanding)
-
-Key: HF_TOKEN  (or HUGGINGFACEHUB_API_TOKEN)
-"""
-
 import os
 import re
 import json
