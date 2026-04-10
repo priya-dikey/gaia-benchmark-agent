@@ -6,47 +6,49 @@ from dotenv import load_dotenv
 
 from langchain_core.messages import HumanMessage
 
-from agent import build_graph  # <-- our modified agent
+from agent import build_graph  # our Claude-powered agent
 
 load_dotenv()
 
-# -------------------------- Constants --------------------------
+# ─── Constants ───────────────────────────────────────────────────────────────
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 
 
 class BasicAgent:
-    """A langgraph agent that uses our `find_answer` graph."""
+    """LangGraph agent powered by HF Inference with web_search, calculator, wikipedia tools."""
+
     def __init__(self):
-        print("BasicAgent initialized.")
+        print("BasicAgent (HF Inference) initialized.")
+        if not os.environ.get("HF_TOKEN"):
+            raise EnvironmentError(
+                "HF_TOKEN environment variable not set. "
+                "Add it as a HF Space secret or in your .env file."
+            )
         self.graph = build_graph()
 
     def __call__(self, question: str) -> str:
-        print(f"Agent received question (first 50 chars): {question[:50]}...")
+        print(f"Agent received question (first 80 chars): {question[:80]}...")
         messages = [HumanMessage(content=question)]
         result = self.graph.invoke({"messages": messages})
-        print(f"Graph result: {result}")
+
         if not isinstance(result, dict):
             return "Graph returned an unexpected result format."
 
         if "messages" in result:
-            answer = result["messages"][-1].content
-            return answer
-        else:
-            return f"Graph returned: {result} (missing 'messages')"
+            return result["messages"][-1].content
+        return f"Graph returned: {result} (missing 'messages')"
 
 
 def run_and_submit_all(profile: gr.OAuthProfile | None):
-    """
-    Fetches all questions, runs the BasicAgent on them, submits all answers,
-    and displays the results.
-    """
+    """Fetch all GAIA questions, run the agent, submit answers, display results."""
     space_id = os.getenv("SPACE_ID")
+
     if profile:
-        username = f"{profile.username}"
+        username = profile.username
         print(f"User logged in: {username}")
     else:
         print("User not logged in.")
-        return "Please Login to Hugging Face with the button.", None
+        return "Please login to Hugging Face with the button.", None
 
     api_url = DEFAULT_API_URL
     questions_url = f"{api_url}/questions"
@@ -69,24 +71,16 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
         response.raise_for_status()
         questions_data = response.json()
         if not questions_data:
-            print("Fetched questions list is empty.")
             return "Fetched questions list is empty or invalid format.", None
         print(f"Fetched {len(questions_data)} questions.")
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching questions: {e}")
-        return f"Error fetching questions: {e}", None
-    except requests.exceptions.JSONDecodeError as e:
-        print(f"Error decoding JSON response from questions endpoint: {e}")
-        print(f"Response text: {response.text[:500]}")
-        return f"Error decoding server response for questions: {e}", None
     except Exception as e:
-        print(f"An unexpected error occurred fetching questions: {e}")
-        return f"An unexpected error occurred fetching questions: {e}", None
+        return f"Error fetching questions: {e}", None
 
-    # 3. Run your Agent on each question
+    # 3. Run Agent on each question
     results_log = []
     answers_payload = []
     print(f"Running agent on {len(questions_data)} questions...")
+
     for item in questions_data:
         task_id = item.get("task_id")
         question_text = item.get("question")
@@ -99,32 +93,25 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
             results_log.append({
                 "Task ID": task_id,
                 "Question": question_text,
-                "Submitted Answer": submitted_answer
+                "Submitted Answer": submitted_answer,
             })
         except Exception as e:
             print(f"Error running agent on task {task_id}: {e}")
             results_log.append({
                 "Task ID": task_id,
                 "Question": question_text,
-                "Submitted Answer": f"AGENT ERROR: {e}"
+                "Submitted Answer": f"AGENT ERROR: {e}",
             })
 
     if not answers_payload:
-        print("Agent did not produce any answers to submit.")
         return "Agent did not produce any answers to submit.", pd.DataFrame(results_log)
 
-    # 4. Prepare Submission
+    # 4. Submit
     submission_data = {
         "username": username.strip(),
         "agent_code": agent_code,
-        "answers": answers_payload
+        "answers": answers_payload,
     }
-    status_update = (
-        f"Agent finished. Submitting {len(answers_payload)} answers for user '{username}'..."
-    )
-    print(status_update)
-
-    # 5. Submit
     print(f"Submitting {len(answers_payload)} answers to: {submit_url}")
     try:
         response = requests.post(submit_url, json=submission_data, timeout=60)
@@ -138,47 +125,34 @@ def run_and_submit_all(profile: gr.OAuthProfile | None):
             f"{result_data.get('total_attempted', '?')} correct)\n"
             f"Message: {result_data.get('message', 'No message received.')}"
         )
-        print("Submission successful.")
-        results_df = pd.DataFrame(results_log)
-        return final_status, results_df
+        return final_status, pd.DataFrame(results_log)
     except requests.exceptions.HTTPError as e:
         error_detail = f"Server responded with status {e.response.status_code}."
         try:
             error_json = e.response.json()
             error_detail += f" Detail: {error_json.get('detail', e.response.text)}"
-        except requests.exceptions.JSONDecodeError:
+        except Exception:
             error_detail += f" Response: {e.response.text[:500]}"
-        status_message = f"Submission Failed: {error_detail}"
-        print(status_message)
-        results_df = pd.DataFrame(results_log)
-        return status_message, results_df
-    except requests.exceptions.Timeout:
-        status_message = "Submission Failed: The request timed out."
-        print(status_message)
-        results_df = pd.DataFrame(results_log)
-        return status_message, results_df
-    except requests.exceptions.RequestException as e:
-        status_message = f"Submission Failed: Network error - {e}"
-        print(status_message)
-        results_df = pd.DataFrame(results_log)
-        return status_message, results_df
+        return f"Submission Failed: {error_detail}", pd.DataFrame(results_log)
     except Exception as e:
-        status_message = f"An unexpected error occurred during submission: {e}"
-        print(status_message)
-        results_df = pd.DataFrame(results_log)
-        return status_message, results_df
+        return f"Submission Failed: {e}", pd.DataFrame(results_log)
 
 
-# ─── Build Gradio Interface ───────────────────────────────────────────────────
+# ─── Gradio Interface ─────────────────────────────────────────────────────────
 
 with gr.Blocks() as demo:
-    gr.Markdown("# Basic Agent Evaluation Runner")
+    gr.Markdown("# GAIA Benchmark Agent — Powered by Hugging Face Inference")
     gr.Markdown(
         """
-        **Instructions:**
-        1. Clone this Space, then modify the code to define your agent logic, tools, etc.
-        2. Log in to your Hugging Face account using the button below.
-        3. Click 'Run Evaluation & Submit All Answers'.
+**Instructions:**
+1. Set `HF_TOKEN` as a HF Space secret (Settings → Variables and secrets → New secret).
+   Your token needs **Inference** permission (a free HF account token works).
+2. Log in to your Hugging Face account using the button below.
+3. Click **Run Evaluation & Submit All Answers**.
+
+The agent uses **`Qwen/Qwen2.5-72B-Instruct`** via the HF Inference API with three tools:
+`web_search`, `calculator`, and `wikipedia`.
+It runs an agentic loop — the model can call tools multiple times before giving a final answer.
         """
     )
 
@@ -191,27 +165,23 @@ with gr.Blocks() as demo:
 
     run_button.click(
         fn=run_and_submit_all,
-        outputs=[status_output, results_table]
+        outputs=[status_output, results_table],
     )
 
 if __name__ == "__main__":
     print("\n" + "-" * 30 + " App Starting " + "-" * 30)
-    space_host_startup = os.getenv("SPACE_HOST")
-    space_id_startup = os.getenv("SPACE_ID")
+    space_host = os.getenv("SPACE_HOST")
+    space_id = os.getenv("SPACE_ID")
 
-    if space_host_startup:
-        print(f"✅ SPACE_HOST found: {space_host_startup}")
-        print(f"   Runtime URL should be: https://{space_host_startup}.hf.space")
+    if space_host:
+        print(f"✅ SPACE_HOST: {space_host}")
     else:
-        print("ℹ️  SPACE_HOST environment variable not found (running locally?).")
+        print("ℹ️  SPACE_HOST not found (running locally?).")
 
-    if space_id_startup:
-        print(f"✅ SPACE_ID found: {space_id_startup}")
-        print(f"   Repo URL: https://huggingface.co/spaces/{space_id_startup}")
-        print(f"   Repo Tree URL: https://huggingface.co/spaces/{space_id_startup}/tree/main")
+    if space_id:
+        print(f"✅ SPACE_ID: {space_id}")
     else:
-        print("ℹ️  SPACE_ID environment variable not found (running locally?). Repo URL cannot be determined.")
+        print("ℹ️  SPACE_ID not found (running locally?).")
 
     print("-" * (60 + len(" App Starting ")) + "\n")
-    print("Launching Gradio Interface for Basic Agent Evaluation...")
     demo.launch(debug=True, share=False)
