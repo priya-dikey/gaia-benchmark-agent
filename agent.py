@@ -130,7 +130,7 @@ def call_hf(messages: list[dict], use_tools: bool = True) -> dict:
     Call the HF Inference OpenAI-compatible chat completions endpoint.
     Requires HF_TOKEN with Inference permission.
     """
-    token = os.environ.get("HF_TOKEN", "")
+    token = os.environ.get("HUGGINGFACEHUB_API_TOKEN", "")
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
