@@ -1,3 +1,12 @@
+"""
+GAIA Benchmark Agent — powered by Hugging Face Inference API
+Architecture mirrors the original LangGraph StateGraph structure.
+Uses HF's OpenAI-compatible chat completions endpoint with tool calling.
+
+Model: Qwen/Qwen2.5-72B-Instruct  (change MODEL below to swap)
+Key:   HF_TOKEN environment variable (a HF token with Inference permission)
+"""
+
 import os
 import json
 import re
@@ -8,21 +17,41 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import StateGraph, MessagesState
 
-# Good options (all support tool/function calling via HF Inference):
-#   "Qwen/Qwen2.5-72B-Instruct"          ← default, strong & fast
-#   "meta-llama/Llama-3.3-70B-Instruct"
-#   "mistralai/Mistral-7B-Instruct-v0.3"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Model config — swap MODEL to any HF Inference-supported chat model
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Good options with reliable tool-calling support via HF router:
+#   "meta-llama/Llama-3.3-70B-Instruct"   ← default, widely supported
+#   "Qwen/Qwen2.5-72B-Instruct"
+#   "mistralai/Mistral-7B-Instruct-v0.3"
+#
+# Append ":provider" to pin a specific backend, e.g. "meta-llama/Llama-3.3-70B-Instruct:sambanova"
+# Available providers: sambanova, together, fireworks-ai, nebius, novita, groq, cerebras
 MODEL = "meta-llama/Llama-3.3-70B-Instruct"
 
+# HF router — automatically picks the fastest available provider for the model.
+# Replaces the old per-model endpoint that would return 410 Gone when a model
+# was rotated off the serverless fleet.
 HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
 MAX_TOKENS = 1024
 MAX_ITERATIONS = 8  # safety cap on agentic rounds
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# System prompt — loaded from system_prompt.txt (same directory as this file)
+# ─────────────────────────────────────────────────────────────────────────────
+
 _PROMPT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "system_prompt.txt")
- 
+
 with open(_PROMPT_FILE, "r", encoding="utf-8") as _f:
     SYSTEM_PROMPT = _f.read()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool implementations
+# ─────────────────────────────────────────────────────────────────────────────
 
 def web_search(query: str) -> str:
     """DuckDuckGo Instant Answer API — no key required."""
@@ -124,13 +153,17 @@ TOOL_SCHEMAS = [
 ]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# HF Inference API caller
+# ─────────────────────────────────────────────────────────────────────────────
 
 def call_hf(messages: list[dict], use_tools: bool = True) -> dict:
     """
-    Call the HF Inference OpenAI-compatible chat completions endpoint.
-    Requires HF_TOKEN with Inference permission.
+    Call the HF router OpenAI-compatible chat completions endpoint.
+    Requires HF_TOKEN (or HUGGINGFACEHUB_API_TOKEN) with Inference permission.
+    Falls back to no-tools if the provider returns 400 with tools enabled.
     """
-    token = os.environ.get("HUGGINGFACEHUB_API_TOKEN", "")
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN", "")
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
@@ -146,9 +179,24 @@ def call_hf(messages: list[dict], use_tools: bool = True) -> dict:
         body["tool_choice"] = "auto"
 
     response = requests.post(HF_API_URL, headers=headers, json=body, timeout=90)
+
+    # Log the full error body so we can see exactly what the provider rejected
+    if not response.ok:
+        print(f"  [HF API error {response.status_code}] {response.text[:500]}")
+        # If tools caused a 400, retry once without them so we still get an answer
+        if response.status_code == 400 and use_tools:
+            print("  [Retrying without tools]")
+            body.pop("tools", None)
+            body.pop("tool_choice", None)
+            response = requests.post(HF_API_URL, headers=headers, json=body, timeout=90)
+
     response.raise_for_status()
     return response.json()
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Agentic loop
+# ─────────────────────────────────────────────────────────────────────────────
 
 def run_agent(question: str) -> str:
     """
@@ -162,12 +210,27 @@ def run_agent(question: str) -> str:
 
     for iteration in range(MAX_ITERATIONS):
         response = call_hf(conversation)
-        choice = response["choices"][0]
-        message = choice["message"]
+
+        # Defensive: handle unexpected response shapes
+        choices = response.get("choices")
+        if not choices:
+            print(f"  [Unexpected response] {str(response)[:300]}")
+            return extract_final_answer(str(response))
+
+        choice = choices[0]
+        message = choice.get("message", {})
         finish_reason = choice.get("finish_reason", "")
 
-        # Add assistant message to history
-        conversation.append(message)
+        # Normalise: some providers nest content differently
+        if isinstance(message, str):
+            return extract_final_answer(message)
+
+        # Add assistant message to history (only keep serialisable fields)
+        conversation.append({
+            "role": "assistant",
+            "content": message.get("content") or "",
+            **({"tool_calls": message["tool_calls"]} if message.get("tool_calls") else {}),
+        })
 
         assistant_text = message.get("content") or ""
         tool_calls = message.get("tool_calls") or []
@@ -178,9 +241,10 @@ def run_agent(question: str) -> str:
 
         # Execute each tool call and collect results
         for tc in tool_calls:
-            fn_name = tc["function"]["name"]
+            fn = tc.get("function", {})
+            fn_name = fn.get("name", "")
             try:
-                fn_args = json.loads(tc["function"]["arguments"])
+                fn_args = json.loads(fn.get("arguments", "{}"))
             except (json.JSONDecodeError, KeyError):
                 fn_args = {}
 
@@ -198,7 +262,7 @@ def run_agent(question: str) -> str:
             # Append tool result as a "tool" role message
             conversation.append({
                 "role": "tool",
-                "tool_call_id": tc["id"],
+                "tool_call_id": tc.get("id", ""),
                 "name": fn_name,
                 "content": str(result),
             })
@@ -220,6 +284,10 @@ def extract_final_answer(text: str) -> str:
     lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
     return lines[-1] if lines else text.strip()
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LangGraph graph — same interface as the original architecture
+# ─────────────────────────────────────────────────────────────────────────────
 
 def build_graph():
     def hf_agent_node(state: MessagesState):
