@@ -353,39 +353,35 @@ def handle_attachment(task_id: str, filename: str, question: str) -> str | None:
         return f"[Unsupported attachment type: '{filename}' — cannot process {ext} files]"
 
         
-def call_hf(messages: list[dict], use_tools: bool = True) -> dict:
+def call_hf(messages: list[dict], model: str, tools: list | None = None) -> dict:
     """
-    Call the HF router OpenAI-compatible chat completions endpoint.
-    Requires HF_TOKEN (or HUGGINGFACEHUB_API_TOKEN) with Inference permission.
-    Falls back to no-tools if the provider returns 400 with tools enabled.
+    POST to the HF router chat-completions endpoint.
+    Retries without tools on 400 so we always get an answer.
     """
-    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN", "")
     headers = {
-        "Authorization": f"Bearer {token}",
+        "Authorization": f"Bearer {_hf_token()}",
         "Content-Type": "application/json",
     }
     body: dict[str, Any] = {
-        "model": MODEL,
+        "model": model,
         "messages": messages,
         "max_tokens": MAX_TOKENS,
         "temperature": 0.1,
     }
-    if use_tools:
-        body["tools"] = TOOL_SCHEMAS
+    if tools:
+        body["tools"] = tools
         body["tool_choice"] = "auto"
-
-    response = requests.post(HF_API_URL, headers=headers, json=body, timeout=90)
-
-    # Log the full error body so we can see exactly what the provider rejected
+ 
+    response = requests.post(HF_API_URL, headers=headers, json=body, timeout=120)
+ 
     if not response.ok:
-        print(f"  [HF API error {response.status_code}] {response.text[:500]}")
-        # If tools caused a 400, retry once without them so we still get an answer
-        if response.status_code == 400 and use_tools:
+        print(f"  [HF {response.status_code}] {response.text[:400]}")
+        if response.status_code == 400 and tools:
             print("  [Retrying without tools]")
             body.pop("tools", None)
             body.pop("tool_choice", None)
-            response = requests.post(HF_API_URL, headers=headers, json=body, timeout=90)
-
+            response = requests.post(HF_API_URL, headers=headers, json=body, timeout=120)
+ 
     response.raise_for_status()
     return response.json()
 
