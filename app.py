@@ -6,11 +6,10 @@ from dotenv import load_dotenv
 
 from langchain_core.messages import HumanMessage
 
-from agent import build_graph  
+from agent import build_graph  # our Claude-powered agent
 
 load_dotenv()
 
-# ─── Constants ───────────────────────────────────────────────────────────────
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 
 
@@ -149,7 +148,7 @@ with gr.Blocks() as demo:
     gr.Markdown(
         """
 **Instructions:**
-1. Set `HUGGINGFACEHUB_API_TOKEN` as a HF Space secret (Settings → Variables and secrets → New secret).
+1. Set `HF_TOKEN` as a HF Space secret (Settings → Variables and secrets → New secret).
    Your token needs **Inference** permission (a free HF account token works).
 2. Log in to your Hugging Face account using the button below.
 3. Click **Run Evaluation & Submit All Answers**.
