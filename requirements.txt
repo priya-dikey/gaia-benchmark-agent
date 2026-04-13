@@ -1,12 +1,13 @@
 gradio
 requests
 langchain-core
-langchain
-langchain-community
 langgraph
 pandas
 python-dotenv
-# PDF text extraction (for GAIA PDF attachments)
+# Search tools
+tavily-python
+arxiv
+# PDF text extraction
 pdfminer.six
-# Video frame extraction (for GAIA video attachments)
+# Video frame extraction
 opencv-python-headless
