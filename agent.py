@@ -6,23 +6,22 @@ import base64
 import tempfile
 import mimetypes
 import requests
-from langchain_community.document_loaders import ArxivLoader
-from langchain_community.tools.tavily_search import TavilySearchResults
 from typing import Any
+
+import arxiv
+from tavily import TavilyClient
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import StateGraph, MessagesState
 
-
-TEXT_MODEL = "Qwen/Qwen2.5-72B-Instruct"
-
+TEXT_MODEL   = "Qwen/Qwen2.5-72B-Instruct"
 VISION_MODEL = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 
-HF_API_URL    = "https://router.huggingface.co/v1/chat/completions"
-GAIA_API_URL  = "https://agents-course-unit4-scoring.hf.space"
+HF_API_URL   = "https://router.huggingface.co/v1/chat/completions"
+GAIA_API_URL = "https://agents-course-unit4-scoring.hf.space"
 
-MAX_TOKENS     = 1024
-MAX_ITERATIONS = 8
+MAX_TOKENS     = 2048
+MAX_ITERATIONS = 10
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"}
 VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv"}
@@ -33,15 +32,13 @@ _PROMPT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "system_
 with open(_PROMPT_FILE, "r", encoding="utf-8") as _f:
     SYSTEM_PROMPT = _f.read()
 
+
 def _hf_token() -> str:
     return os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACEHUB_API_TOKEN", "")
 
 
 def call_hf(messages: list[dict], model: str, tools: list | None = None) -> dict:
-    """
-    POST to the HF router chat-completions endpoint.
-    Retries without tools on 400 so we always get an answer.
-    """
+    """POST to HF router; retries without tools on 400."""
     headers = {
         "Authorization": f"Bearer {_hf_token()}",
         "Content-Type": "application/json",
@@ -50,301 +47,199 @@ def call_hf(messages: list[dict], model: str, tools: list | None = None) -> dict
         "model": model,
         "messages": messages,
         "max_tokens": MAX_TOKENS,
-        "temperature": 0.1,
+        "temperature": 0.0,
     }
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
 
-    response = requests.post(HF_API_URL, headers=headers, json=body, timeout=120)
+    resp = requests.post(HF_API_URL, headers=headers, json=body, timeout=120)
 
-    if not response.ok:
-        print(f"  [HF {response.status_code}] {response.text[:400]}")
-        if response.status_code == 400 and tools:
+    if not resp.ok:
+        print(f"  [HF {resp.status_code}] {resp.text[:400]}")
+        if resp.status_code == 400 and tools:
             print("  [Retrying without tools]")
             body.pop("tools", None)
             body.pop("tool_choice", None)
-            response = requests.post(HF_API_URL, headers=headers, json=body, timeout=120)
+            resp = requests.post(HF_API_URL, headers=headers, json=body, timeout=120)
 
-    response.raise_for_status()
-    return response.json()
-
-
-def _fetch_task_file(task_id: str) -> bytes | None:
-    """Download the attached file for a GAIA task from the scoring API."""
-    try:
-        url = f"{GAIA_API_URL}/files/{task_id}"
-        r = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {_hf_token()}"},
-            timeout=30,
-        )
-        if r.status_code == 200:
-            return r.content
-        print(f"  [File fetch] {r.status_code} for task {task_id}")
-        return None
-    except Exception as e:
-        print(f"  [File fetch error] {e}")
-        return None
+    resp.raise_for_status()
+    return resp.json()
 
 
-def _to_data_url(data: bytes, filename: str) -> str:
-    """Encode raw bytes as a base64 data URL, guessing MIME from filename + magic bytes."""
-    mime, _ = mimetypes.guess_type(filename)
-    if not mime:
-        # Magic-byte sniffing
-        if data[:4] == b"\x89PNG":
-            mime = "image/png"
-        elif data[:2] == b"\xff\xd8":
-            mime = "image/jpeg"
-        elif data[:4] == b"GIF8":
-            mime = "image/gif"
-        elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-            mime = "image/webp"
-        else:
-            mime = "application/octet-stream"
-    b64 = base64.b64encode(data).decode("utf-8")
-    return f"data:{mime};base64,{b64}"
-
-
-def describe_image(image_data: bytes, filename: str, question: str) -> str:
-    """Send an image to the vision model and ask the question about it."""
-    data_url = _to_data_url(image_data, filename)
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": data_url}},
-                {
-                    "type": "text",
-                    "text": (
-                        f"You are analysing this image to answer a GAIA benchmark question.\n"
-                        f"Question: {question}\n"
-                        f"Describe all relevant visual details and answer the question directly."
-                    ),
-                },
-            ],
-        }
-    ]
-    print(f"  [Vision] {filename} → {VISION_MODEL}")
-    resp = call_hf(messages, model=VISION_MODEL, tools=None)
-    return resp["choices"][0]["message"].get("content", "")
-
-
-def extract_video_frames(video_data: bytes, filename: str, n_frames: int = 4) -> list[bytes]:
+def tavily_search(query: str, search_depth: str = "advanced") -> str:
     """
-    Extract N evenly-spaced frames from a video as JPEG bytes.
-    Requires opencv-python. Returns [] if unavailable.
+    Real-time web search via Tavily. Returns rich snippets with source URLs.
+    search_depth: "basic" (faster) or "advanced" (more thorough, costs 2 credits).
+    Falls back to Wikipedia search if TAVILY_API_KEY is not set.
+    """
+    api_key = os.environ.get("TAVILY_API_KEY", "")
+    if not api_key:
+        print("  [Tavily] No TAVILY_API_KEY — falling back to Wikipedia search")
+        return wikipedia(query)
+
+    try:
+        client = TavilyClient(api_key=api_key)
+        response = client.search(
+            query=query,
+            search_depth=search_depth,
+            max_results=5,
+            include_answer=True,        # LLM-generated answer from results
+            include_raw_content=False,
+        )
+
+        parts = []
+
+        # Direct answer if available
+        if response.get("answer"):
+            parts.append(f"Answer: {response['answer']}")
+
+        # Top results with title, url, snippet
+        for r in response.get("results", []):
+            title   = r.get("title", "")
+            url     = r.get("url", "")
+            content = r.get("content", "")[:400]
+            parts.append(f"[{title}] ({url})\n{content}")
+
+        return "\n\n".join(parts) if parts else f"No results found for: {query}"
+
+    except Exception as e:
+        return f"Tavily search error: {e}"
+
+
+def arxiv_search(query: str, max_results: int = 3) -> str:
+    """
+    Search arXiv for academic papers. Returns title, authors, published date,
+    and abstract for each result. Useful for science/math/CS questions.
     """
     try:
-        import cv2
+        client = arxiv.Client()
+        search = arxiv.Search(
+            query=query,
+            max_results=max_results,
+            sort_by=arxiv.SortCriterion.Relevance,
+        )
 
-        suffix = os.path.splitext(filename)[1] or ".mp4"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(video_data)
-            tmp_path = tmp.name
+        parts = []
+        for result in client.results(search):
+            authors = ", ".join(a.name for a in result.authors[:3])
+            if len(result.authors) > 3:
+                authors += " et al."
+            parts.append(
+                f"Title: {result.title}\n"
+                f"Authors: {authors}\n"
+                f"Published: {result.published.strftime('%Y-%m-%d')}\n"
+                f"ArXiv ID: {result.entry_id.split('/')[-1]}\n"
+                f"Abstract: {result.summary[:500]}"
+            )
 
-        cap = cv2.VideoCapture(tmp_path)
-        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        frames = []
+        return "\n\n---\n\n".join(parts) if parts else f"No arXiv papers found for: {query}"
 
-        if total > 0:
-            indices = [int(i * total / n_frames) for i in range(n_frames)]
-            for idx in indices:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                ret, frame = cap.read()
-                if ret:
-                    _, buf = cv2.imencode(".jpg", frame)
-                    frames.append(buf.tobytes())
-
-        cap.release()
-        os.unlink(tmp_path)
-        return frames
-
-    except ImportError:
-        print("  [Video] opencv-python not installed — pip install opencv-python")
-        return []
     except Exception as e:
-        print(f"  [Video] Frame extraction error: {e}")
-        return []
-
-
-def describe_video(video_data: bytes, filename: str, question: str) -> str:
-    """
-    Extract frames, describe each with the vision model, then synthesise an answer
-    using the text model.
-    """
-    print(f"  [Video] Extracting frames from {filename} ({len(video_data)//1024}KB)")
-    frames = extract_video_frames(video_data, filename, n_frames=4)
-
-    if not frames:
-        return (
-            "Could not extract frames from the video file. "
-            "Install opencv-python (pip install opencv-python) to enable video analysis."
-        )
-
-    frame_descriptions = []
-    for i, frame_bytes in enumerate(frames):
-        desc = describe_image(frame_bytes, f"frame_{i+1}.jpg", question)
-        frame_descriptions.append(f"Frame {i+1}: {desc}")
-        print(f"  [Video] Frame {i+1} described.")
-
-    combined = "\n\n".join(frame_descriptions)
-
-    # Synthesise across frames using the text model
-    synthesis = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": (
-                f"I extracted {len(frames)} frames from a video and described each:\n\n"
-                f"{combined}\n\n"
-                f"Based on these descriptions, answer the following question:\n{question}\n\n"
-                f"End with: FINAL ANSWER: <your answer>"
-            ),
-        },
-    ]
-    resp = call_hf(synthesis, model=TEXT_MODEL, tools=None)
-    return resp["choices"][0]["message"].get("content", combined)
-
-
-def handle_attachment(task_id: str, filename: str, question: str) -> str | None:
-    """
-    Download the task file and route to the correct handler.
-    Returns a context string to prepend to the agent prompt, or None.
-    """
-    if not task_id or not filename:
-        return None
-
-    ext = os.path.splitext(filename.lower())[1]
-    print(f"  [Attachment] Fetching {filename} (ext={ext})")
-
-    file_data = _fetch_task_file(task_id)
-    if file_data is None:
-        return f"[Could not download attachment: {filename}]"
-
-    # ── Images ────────────────────────────────────────────────────────────────
-    if ext in IMAGE_EXTS:
-        desc = describe_image(file_data, filename, question)
-        return f"[Image analysis of '{filename}']:\n{desc}"
-
-    # ── Videos ────────────────────────────────────────────────────────────────
-    elif ext in VIDEO_EXTS:
-        desc = describe_video(file_data, filename, question)
-        return f"[Video analysis of '{filename}']:\n{desc}"
-
-    # ── Audio ─────────────────────────────────────────────────────────────────
-    elif ext in AUDIO_EXTS:
-        # Whisper transcription would go here; returning a note for now
-        return (
-            f"[Audio file '{filename}' detected. "
-            "Full audio transcription requires whisper integration. "
-            "Consider answering from context if possible.]"
-        )
-
-    # ── PDFs ──────────────────────────────────────────────────────────────────
-    elif ext == ".pdf":
-        try:
-            from io import BytesIO
-            from pdfminer.high_level import extract_text
-            text = extract_text(BytesIO(file_data))
-            return f"[PDF content of '{filename}']:\n{text[:4000]}"
-        except ImportError:
-            return f"[PDF '{filename}' — install pdfminer.six for text extraction]"
-        except Exception as e:
-            return f"[PDF extraction error for '{filename}': {e}]"
-
-    # ── Plain text / structured text ──────────────────────────────────────────
-    elif ext in (".txt", ".csv", ".md", ".json", ".xml", ".html", ".py", ".js"):
-        try:
-            text = file_data.decode("utf-8", errors="replace")
-            return f"[Content of '{filename}']:\n{text[:4000]}"
-        except Exception as e:
-            return f"[Text decode error for '{filename}': {e}]"
-
-    else:
-        return f"[Unsupported attachment type: '{filename}' — cannot process {ext} files]"
-
-
-def web_search(query: str) -> str:
-    """DuckDuckGo Instant Answer API — no key required."""
-    try:
-        r = requests.get(
-            "https://api.duckduckgo.com/",
-            params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
-            timeout=10,
-        )
-        data = r.json()
-        if data.get("AbstractText"):
-            return data["AbstractText"]
-        snippets = [
-            t["Text"] for t in data.get("RelatedTopics", [])[:3]
-            if isinstance(t, dict) and t.get("Text")
-        ]
-        return "\n".join(snippets) if snippets else f"No results found for: {query}"
-    except Exception as e:
-        return f"Web search error: {e}"
-
-# def web_search_new(query: str) -> str:
-#     """Search Tavily for a query and return maximum 3 results.
-    
-#     Args:
-#         query: The search query."""
-#     search_docs = TavilySearchResults(max_results=3).invoke(query=query)
-#     formatted_search_docs = "\n\n---\n\n".join(
-#         [
-#             f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content}\n</Document>'
-#             for doc in search_docs
-#         ])
-#     return {"web_results": formatted_search_docs}        
+        return f"arXiv search error: {e}"
 
 
 def calculator(expression: str) -> str:
-    """Safe math eval with Python's math module."""
+    """
+    Safe math eval. Supports +,-,*,/,**,sqrt,log,log10,ceil,floor,pi,e,factorial, etc.
+    Always use this for arithmetic — never compute mentally.
+    """
     try:
         cleaned = expression.replace("^", "**").replace(",", "")
         safe_ns = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
         safe_ns["__builtins__"] = {}
-        return str(eval(cleaned, safe_ns))
+        result = eval(cleaned, safe_ns)
+        # Return int if whole number
+        if isinstance(result, float) and result.is_integer():
+            return str(int(result))
+        return str(result)
     except Exception as e:
         return f"Calculation error: {e}"
 
 
 def wikipedia(query: str) -> str:
-    """Wikipedia REST API summary."""
+    """Fetch a Wikipedia article summary (up to 2000 chars)."""
     try:
         url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + requests.utils.quote(query)
         r = requests.get(url, timeout=10)
         if r.status_code == 200:
-            return r.json().get("extract", "No summary found.")
-        return f"Wikipedia: page not found for '{query}'"
+            extract = r.json().get("extract", "")
+            return extract[:2000] if extract else "No summary found."
+        # Fall back to Wikipedia search API
+        r2 = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={"action": "query", "list": "search", "srsearch": query,
+                    "format": "json", "srlimit": 3},
+            timeout=10,
+        )
+        items = r2.json().get("query", {}).get("search", [])
+        if items:
+            snippets = [
+                f"{i['title']}: {re.sub(r'<[^>]+>', '', i.get('snippet',''))}"
+                for i in items
+            ]
+            return "\n".join(snippets)
+        return f"Wikipedia: nothing found for '{query}'"
     except Exception as e:
         return f"Wikipedia error: {e}"
 
-def arvix_search(query: str) -> str:
-    """Search Arxiv for a query and return maximum 3 result.
-    
-    Args:
-        query: The search query."""
-    search_docs = ArxivLoader(query=query, load_max_docs=3).load()
-    formatted_search_docs = "\n\n---\n\n".join(
-        [
-            f'<Document source="{doc.metadata["source"]}" page="{doc.metadata.get("page", "")}"/>\n{doc.page_content[:1000]}\n</Document>'
-            for doc in search_docs
-        ])
-    return {"arvix_results": formatted_search_docs}
-    
-TOOLS = {"web_search": web_search, "calculator": calculator, "wikipedia": wikipedia,"arxiv_search": arvix_search,}
+
+TOOLS = {
+    "tavily_search": tavily_search,
+    "arxiv_search":  arxiv_search,
+    "calculator":    calculator,
+    "wikipedia":     wikipedia,
+}
 
 TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
-            "name": "web_search",
-            "description": "Search the web for current information, news, or facts.",
+            "name": "tavily_search",
+            "description": (
+                "Real-time web search. Use for any factual question, current events, "
+                "people, places, history, products, or anything that needs up-to-date information. "
+                "Preferred over wikipedia for most questions."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"query": {"type": "string"}},
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "A specific, well-formed search query"
+                    },
+                    "search_depth": {
+                        "type": "string",
+                        "enum": ["basic", "advanced"],
+                        "description": "Use 'advanced' for complex questions, 'basic' for simple lookups"
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "arxiv_search",
+            "description": (
+                "Search academic papers on arXiv. Use for questions about scientific research, "
+                "papers, authors, published findings in physics, math, CS, biology, etc. "
+                "Free, no API key required."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query — can include author names, paper titles, topics"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Number of papers to return (default 3, max 5)",
+                        "default": 3,
+                    },
+                },
                 "required": ["query"],
             },
         },
@@ -353,10 +248,19 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "calculator",
-            "description": "Evaluate a math expression. Supports +,-,*,/,**,sqrt,log,ceil,floor.",
+            "description": (
+                "Evaluate any math expression. Supports: +,-,*,/,**,sqrt(),log(),log10(),"
+                "ceil(),floor(),pi,e,factorial(),sin(),cos(),tan(). "
+                "Always use this instead of computing mentally."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"expression": {"type": "string"}},
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "Math expression e.g. 'ceil(1002 * 0.04)' or 'sqrt(144)'"
+                    }
+                },
                 "required": ["expression"],
             },
         },
@@ -365,10 +269,18 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "wikipedia",
-            "description": "Look up a Wikipedia article summary for a person, place, or concept.",
+            "description": (
+                "Fetch a Wikipedia article summary. Good for well-known people, places, "
+                "concepts, or events. Use tavily_search if you need more detail."
+            ),
             "parameters": {
                 "type": "object",
-                "properties": {"query": {"type": "string"}},
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Wikipedia article title or topic"
+                    }
+                },
                 "required": ["query"],
             },
         },
@@ -378,106 +290,228 @@ TOOL_SCHEMAS = [
 
 
 def _parse_xml_tool_calls(text: str) -> list[dict]:
-    """
-    Some models (e.g. Llama-3.3) emit tool calls in an old XML format:
-        <function=tool_name{"arg": "value"}></function>
-    or:
-        <function=tool_name>{"arg": "value"}</function>
-
-    This parser detects and converts them into the standard OpenAI tool_call dicts
-    so the agentic loop can handle them normally.
-    """
-    # Pattern: <function=NAME{JSON}></function>  or  <function=NAME>JSON</function>
     pattern = re.compile(
-        r"<function=([\w_]+)"   # tool name
-        r"(?:\{(.+?)\})?"       # optional inline JSON args  {…}
-        r">(?:(.*?))?</function>",# optional body JSON args
+        r"<function=(\w+)"
+        r"(?:\{(.+?)\})?"
+        r">(.*?)</function>",
         re.DOTALL,
     )
     calls = []
     for i, m in enumerate(pattern.finditer(text)):
-        name = m.group(1)
-        args_str = m.group(2) or m.group(3) or "{}"
-        args_str = args_str.strip()
-        # Wrap bare key:value if not valid JSON
+        name     = m.group(1)
+        args_str = (m.group(2) or m.group(3) or "{}").strip()
         if args_str and not args_str.startswith("{"):
             args_str = "{" + args_str + "}"
         try:
-            json.loads(args_str)   # validate
+            json.loads(args_str)
         except json.JSONDecodeError:
             args_str = "{}"
         calls.append({
-            "id": f"xml_call_{i}",
+            "id": f"xml_{i}",
             "type": "function",
             "function": {"name": name, "arguments": args_str},
         })
     return calls
 
-def run_agent(question: str, task_id: str = "", file_name: str = "") -> str:
-    """
-    Full agentic loop with optional multimodal pre-processing.
 
-    If task_id + file_name are provided, the attachment is fetched and analysed
-    first (image→vision model, video→frame extraction+vision, pdf→text extraction),
-    and the result is prepended to the user message so the text model has full context.
-    """
+def extract_final_answer(text: str) -> str:
+    if not text:
+        return ""
+    match = re.search(r"FINAL ANSWER:\s*(.+)", text, re.IGNORECASE | re.DOTALL)
+    if match:
+        answer = match.group(1).strip().splitlines()[0].strip()
+        answer = answer.strip('"\'')
+        # Remove trailing period/comma unless it's a decimal number
+        if answer and answer[-1] in ".," and not re.match(r"^\d+\.\d+$", answer):
+            answer = answer[:-1]
+        return answer
+    lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
+    return lines[-1] if lines else text.strip()
+
+
+def _fetch_task_file(task_id: str) -> bytes | None:
+    try:
+        r = requests.get(
+            f"{GAIA_API_URL}/files/{task_id}",
+            headers={"Authorization": f"Bearer {_hf_token()}"},
+            timeout=30,
+        )
+        return r.content if r.status_code == 200 else None
+    except Exception as e:
+        print(f"  [File fetch error] {e}")
+        return None
+
+
+def _to_data_url(data: bytes, filename: str) -> str:
+    mime, _ = mimetypes.guess_type(filename)
+    if not mime:
+        if data[:4] == b"\x89PNG":    mime = "image/png"
+        elif data[:2] == b"\xff\xd8": mime = "image/jpeg"
+        elif data[:4] == b"GIF8":     mime = "image/gif"
+        else:                          mime = "image/jpeg"
+    return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+
+
+def describe_image(image_data: bytes, filename: str, question: str) -> str:
+    data_url = _to_data_url(image_data, filename)
+    resp = call_hf(
+        [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": (
+                    f"Analyse this image carefully to help answer a GAIA benchmark question.\n"
+                    f"Question: {question}\n"
+                    f"Describe all visible text, numbers, labels, objects, and details. "
+                    f"Be thorough — small details may be the answer."
+                )},
+            ],
+        }],
+        model=VISION_MODEL,
+        tools=None,
+    )
+    return resp["choices"][0]["message"].get("content", "")
+
+
+def extract_video_frames(video_data: bytes, filename: str, n_frames: int = 6) -> list[bytes]:
+    try:
+        import cv2
+        suffix = os.path.splitext(filename)[1] or ".mp4"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(video_data)
+            tmp_path = tmp.name
+        cap   = cv2.VideoCapture(tmp_path)
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frames = []
+        if total > 0:
+            for i in range(n_frames):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(i * total / n_frames))
+                ret, frame = cap.read()
+                if ret:
+                    _, buf = cv2.imencode(".jpg", frame)
+                    frames.append(buf.tobytes())
+        cap.release()
+        os.unlink(tmp_path)
+        return frames
+    except ImportError:
+        print("  [Video] pip install opencv-python-headless")
+        return []
+    except Exception as e:
+        print(f"  [Video] {e}")
+        return []
+
+
+def describe_video(video_data: bytes, filename: str, question: str) -> str:
+    frames = extract_video_frames(video_data, filename)
+    if not frames:
+        return "Could not extract video frames — install opencv-python-headless."
+    descs = [f"Frame {i+1}: {describe_image(fb, f'frame_{i+1}.jpg', question)}"
+             for i, fb in enumerate(frames)]
+    combined = "\n\n".join(descs)
+    resp = call_hf(
+        [{"role": "system", "content": SYSTEM_PROMPT},
+         {"role": "user",   "content":
+          f"Video frame descriptions:\n\n{combined}\n\nQuestion: {question}\n\nFINAL ANSWER: <answer>"}],
+        model=TEXT_MODEL,
+        tools=None,
+    )
+    return resp["choices"][0]["message"].get("content", combined)
+
+
+def handle_attachment(task_id: str, filename: str, question: str) -> str | None:
+    if not task_id or not filename:
+        return None
+    ext  = os.path.splitext(filename.lower())[1]
+    data = _fetch_task_file(task_id)
+    if data is None:
+        return f"[Could not download: {filename}]"
+    print(f"  [Attachment] {filename} ({len(data)//1024}KB, ext={ext})")
+
+    if ext in IMAGE_EXTS:
+        return f"[Image '{filename}']:\n{describe_image(data, filename, question)}"
+    elif ext in VIDEO_EXTS:
+        return f"[Video '{filename}']:\n{describe_video(data, filename, question)}"
+    elif ext in AUDIO_EXTS:
+        return f"[Audio '{filename}' — transcription not supported yet]"
+    elif ext == ".pdf":
+        try:
+            from io import BytesIO
+            from pdfminer.high_level import extract_text
+            return f"[PDF '{filename}']:\n{extract_text(BytesIO(data))[:4000]}"
+        except ImportError:
+            return f"[PDF '{filename}' — install pdfminer.six]"
+        except Exception as e:
+            return f"[PDF error: {e}]"
+    elif ext in (".txt", ".csv", ".md", ".json", ".xml", ".html", ".py"):
+        try:
+            return f"[File '{filename}']:\n{data.decode('utf-8', errors='replace')[:4000]}"
+        except Exception as e:
+            return f"[Decode error: {e}]"
+    else:
+        return f"[Unsupported file type: {filename}]"
+
+
+
+def run_agent(question: str, task_id: str = "", file_name: str = "") -> str:
     # Step 1: handle attachment
-    attachment_context = ""
+    attachment_ctx = ""
     if task_id and file_name:
-        attachment_context = handle_attachment(task_id, file_name, question) or ""
-        if attachment_context:
-            print(f"  [Context] {attachment_context[:200]}...")
+        attachment_ctx = handle_attachment(task_id, file_name, question) or ""
 
     # Step 2: build initial conversation
-    user_content = f"{attachment_context}\n\n{question}" if attachment_context else question
-
+    user_content = f"{attachment_ctx}\n\n{question}".strip() if attachment_ctx else question
     conversation: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
+        {"role": "user",   "content": user_content},
     ]
 
-    # Step 3: agentic tool-use loop
-    for _ in range(MAX_ITERATIONS):
+    # Step 3: agentic loop
+    for iteration in range(MAX_ITERATIONS):
         response = call_hf(conversation, model=TEXT_MODEL, tools=TOOL_SCHEMAS)
 
         choices = response.get("choices")
         if not choices:
-            print(f"  [Unexpected response] {str(response)[:300]}")
             return extract_final_answer(str(response))
 
-        choice = choices[0]
-        message = choice.get("message", {})
+        choice        = choices[0]
+        message       = choice.get("message", {})
         finish_reason = choice.get("finish_reason", "")
 
         if isinstance(message, str):
             return extract_final_answer(message)
 
-        conversation.append({
-            "role": "assistant",
-            "content": message.get("content") or "",
-            **({"tool_calls": message["tool_calls"]} if message.get("tool_calls") else {}),
-        })
-
         assistant_text = message.get("content") or ""
-        tool_calls = message.get("tool_calls") or []
+        tool_calls     = message.get("tool_calls") or []
 
-        # Fallback: some models emit XML-style tool calls in the text content
+        # XML fallback
         if not tool_calls and assistant_text:
             tool_calls = _parse_xml_tool_calls(assistant_text)
             if tool_calls:
-                print(f"  [XML fallback] Parsed {len(tool_calls)} tool call(s) from text")
-                # Strip the XML from the visible text
-                assistant_text = re.sub(r"<function=.*?</function>", "", assistant_text, flags=re.DOTALL).strip()
+                print(f"  [XML fallback] {len(tool_calls)} call(s)")
+                assistant_text = re.sub(
+                    r"<function=.*?</function>", "", assistant_text, flags=re.DOTALL
+                ).strip()
+
+        # Append assistant turn to history
+        conversation.append({
+            "role":    "assistant",
+            "content": assistant_text,
+            **({"tool_calls": message.get("tool_calls") or [
+                    {"id": tc["id"], "type": "function", "function": tc["function"]}
+                    for tc in tool_calls
+                ]} if tool_calls else {}),
+        })
 
         if finish_reason == "stop" or not tool_calls:
             return extract_final_answer(assistant_text)
 
+        # Execute each tool call
         for tc in tool_calls:
-            fn = tc.get("function", {})
+            fn      = tc.get("function", {})
             fn_name = fn.get("name", "")
             try:
                 fn_args = json.loads(fn.get("arguments", "{}"))
-            except (json.JSONDecodeError, KeyError):
+            except json.JSONDecodeError:
                 fn_args = {}
 
             tool_fn = TOOLS.get(fn_name)
@@ -486,53 +520,37 @@ def run_agent(question: str, task_id: str = "", file_name: str = "") -> str:
             except Exception as e:
                 result = f"Tool error: {e}"
 
-            print(f"  [Tool] {fn_name}({fn_args}) → {str(result)[:120]}")
+            print(f"  [Tool] {fn_name}({fn_args}) → {str(result)[:150]}")
 
             conversation.append({
-                "role": "tool",
+                "role":         "tool",
                 "tool_call_id": tc.get("id", ""),
-                "name": fn_name,
-                "content": str(result),
+                "name":         fn_name,
+                "content":      str(result),
             })
 
-    # Max iterations — force a final answer
-    conversation.append({"role": "user", "content": "Please give your final answer now."})
+    # Force final answer after hitting iteration cap
+    conversation.append({
+        "role":    "user",
+        "content": "Based on everything above, provide only: FINAL ANSWER: <answer>",
+    })
     final = call_hf(conversation, model=TEXT_MODEL, tools=None)
     return extract_final_answer(final["choices"][0]["message"].get("content", ""))
 
 
-def extract_final_answer(text: str) -> str:
-    if not text:
-        return ""
-
-    match = re.search(r"FINAL ANSWER:\s*(.+)", text, re.IGNORECASE | re.DOTALL)
-    if match:
-        ans = match.group(1).strip()
-    else:
-        lines = [ln.strip() for ln in text.strip().splitlines() if ln.strip()]
-        ans = lines[-1] if lines else text.strip()
-
-    ans = ans.strip()
-    ans = re.sub(r"^The answer is[:\s]*", "", ans, flags=re.IGNORECASE)
-    ans = re.sub(r"[\.。\s]+$", "", ans)  # remove trailing dots/spaces
-    ans = ans.replace(",", "")  # numbers like 1,000 → 1000
-
-    return ans
-
 def build_graph():
     def hf_agent_node(state: MessagesState):
-        last = state["messages"][-1]
-        meta = getattr(last, "additional_kwargs", {}) or {}
-        task_id  = meta.get("task_id", "")
+        last      = state["messages"][-1]
+        meta      = getattr(last, "additional_kwargs", {}) or {}
+        task_id   = meta.get("task_id", "")
         file_name = meta.get("file_name", "")
 
-        user_query = last.content
-        print(f"[Agent] Processing: {user_query[:80]}...")
+        print(f"[Agent] {last.content[:100]}...")
         if file_name:
             print(f"[Agent] Attachment: {file_name} (task={task_id})")
 
-        answer = run_agent(user_query, task_id=task_id, file_name=file_name)
-        print(f"[Agent] Answer: {answer[:120]}")
+        answer = run_agent(last.content, task_id=task_id, file_name=file_name)
+        print(f"[Agent] → {answer[:120]}")
         return {"messages": state["messages"] + [AIMessage(content=answer)]}
 
     builder = StateGraph(MessagesState)
