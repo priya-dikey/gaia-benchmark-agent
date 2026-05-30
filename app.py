@@ -187,4 +187,4 @@ if __name__ == "__main__":
         print("ℹ️  SPACE_ID not found (running locally?).")
 
     print("-" * (60 + len(" App Starting ")) + "\n")
-    demo.launch(debug=True, share=False)
+    demo.launch(debug=os.getenv("DEBUG", "").lower() == "true", share=False)

@@ -1,7 +1,9 @@
 import os
 import re
+import ast
 import json
 import math
+import operator
 import base64
 import tempfile
 import mimetypes
@@ -139,17 +141,76 @@ def arxiv_search(query: str, max_results: int = 3) -> str:
         return f"arXiv search error: {e}"
 
 
+_SAFE_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+_SAFE_FUNCTIONS = {
+    "sqrt": math.sqrt, "log": math.log, "log10": math.log10,
+    "log2": math.log2, "ceil": math.ceil, "floor": math.floor,
+    "factorial": math.factorial, "abs": abs, "round": round,
+    "sin": math.sin, "cos": math.cos, "tan": math.tan,
+    "asin": math.asin, "acos": math.acos, "atan": math.atan,
+    "degrees": math.degrees, "radians": math.radians,
+    "exp": math.exp, "gcd": math.gcd,
+}
+
+_SAFE_CONSTANTS = {
+    "pi": math.pi, "e": math.e, "tau": math.tau, "inf": math.inf,
+}
+
+
+def _safe_eval_node(node: ast.AST) -> float | int:
+    """Recursively evaluate an AST node using only whitelisted operations."""
+    if isinstance(node, ast.Expression):
+        return _safe_eval_node(node.body)
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float)):
+            return node.value
+        raise ValueError(f"Unsupported constant: {node.value!r}")
+    if isinstance(node, ast.Name):
+        if node.id in _SAFE_CONSTANTS:
+            return _SAFE_CONSTANTS[node.id]
+        raise ValueError(f"Unknown name: {node.id!r}")
+    if isinstance(node, ast.UnaryOp):
+        op_fn = _SAFE_OPERATORS.get(type(node.op))
+        if op_fn is None:
+            raise ValueError(f"Unsupported unary op: {type(node.op).__name__}")
+        return op_fn(_safe_eval_node(node.operand))
+    if isinstance(node, ast.BinOp):
+        op_fn = _SAFE_OPERATORS.get(type(node.op))
+        if op_fn is None:
+            raise ValueError(f"Unsupported binary op: {type(node.op).__name__}")
+        return op_fn(_safe_eval_node(node.left), _safe_eval_node(node.right))
+    if isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name):
+            raise ValueError("Only simple function calls are allowed")
+        fn = _SAFE_FUNCTIONS.get(node.func.id)
+        if fn is None:
+            raise ValueError(f"Unknown function: {node.func.id!r}")
+        args = [_safe_eval_node(a) for a in node.args]
+        return fn(*args)
+    raise ValueError(f"Unsupported expression node: {type(node).__name__}")
+
+
 def calculator(expression: str) -> str:
     """
-    Safe math eval. Supports +,-,*,/,**,sqrt,log,log10,ceil,floor,pi,e,factorial, etc.
+    Safe math eval using AST parsing (no eval/exec).
+    Supports +,-,*,/,**,sqrt,log,log10,ceil,floor,pi,e,factorial, etc.
     Always use this for arithmetic — never compute mentally.
     """
     try:
         cleaned = expression.replace("^", "**").replace(",", "")
-        safe_ns = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
-        safe_ns["__builtins__"] = {}
-        result = eval(cleaned, safe_ns)
-        # Return int if whole number
+        tree = ast.parse(cleaned, mode="eval")
+        result = _safe_eval_node(tree)
         if isinstance(result, float) and result.is_integer():
             return str(int(result))
         return str(result)
@@ -377,22 +438,26 @@ def extract_video_frames(video_data: bytes, filename: str, n_frames: int = 6) ->
     try:
         import cv2
         suffix = os.path.splitext(filename)[1] or ".mp4"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(video_data)
-            tmp_path = tmp.name
-        cap   = cv2.VideoCapture(tmp_path)
-        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        frames = []
-        if total > 0:
-            for i in range(n_frames):
-                cap.set(cv2.CAP_PROP_POS_FRAMES, int(i * total / n_frames))
-                ret, frame = cap.read()
-                if ret:
-                    _, buf = cv2.imencode(".jpg", frame)
-                    frames.append(buf.tobytes())
-        cap.release()
-        os.unlink(tmp_path)
-        return frames
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp.write(video_data)
+                tmp_path = tmp.name
+            cap   = cv2.VideoCapture(tmp_path)
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            frames = []
+            if total > 0:
+                for i in range(n_frames):
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, int(i * total / n_frames))
+                    ret, frame = cap.read()
+                    if ret:
+                        _, buf = cv2.imencode(".jpg", frame)
+                        frames.append(buf.tobytes())
+            cap.release()
+            return frames
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
     except ImportError:
         print("  [Video] pip install opencv-python-headless")
         return []
